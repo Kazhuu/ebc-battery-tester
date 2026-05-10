@@ -5,17 +5,13 @@ use std::{cell::RefCell, rc::Rc};
 #[serde(default)]
 pub struct MainApp {
     #[serde(skip)]
-    usb_devices: Rc<RefCell<Vec<usb::UsbDeviceInfo>>>,
-
-    #[serde(skip)]
-    selected_device_idx: Option<usize>,
+    usb: Rc<RefCell<usb::UsbState>>,
 }
 
 impl Default for MainApp {
     fn default() -> Self {
         Self {
-            usb_devices: Default::default(),
-            selected_device_idx: None,
+            usb: Default::default(),
         }
     }
 }
@@ -29,7 +25,7 @@ impl MainApp {
         };
 
         usb::enumerate_devices(
-            Rc::clone(&app.usb_devices),
+            Rc::clone(&app.usb),
             cc.egui_ctx.clone(),
         );
 
@@ -41,14 +37,17 @@ impl MainApp {
         ui.heading("USB Device");
 
         let device_labels: Vec<String> = self
-            .usb_devices
+            .usb
             .borrow()
+            .available_devices
             .iter()
             .map(|d| d.to_string())
             .collect();
 
         let selected_text = self
-            .selected_device_idx
+            .usb
+            .borrow()
+            .selected_index
             .and_then(|i| device_labels.get(i))
             .map_or_else(|| "No device selected".to_owned(), Clone::clone);
 
@@ -60,25 +59,47 @@ impl MainApp {
                         ui.label("No devices found");
                     }
                     for (i, label) in device_labels.iter().enumerate() {
-                        ui.selectable_value(&mut self.selected_device_idx, Some(i), label);
+                        ui.selectable_value(&mut self.usb.borrow_mut().selected_index, Some(i), label);
                     }
                 });
 
             if ui.button("Refresh").clicked() {
-                usb::enumerate_devices(
-                    Rc::clone(&self.usb_devices),
-                    ui.ctx().clone(),
-                );
+                usb::enumerate_devices(Rc::clone(&self.usb), ui.ctx().clone());
             }
             if ui.button("Pair new device").clicked() {
-                usb::request_device(
-                    Rc::clone(&self.usb_devices),
-                    ui.ctx().clone(),
-                );
+                usb::request_device(Rc::clone(&self.usb), ui.ctx().clone());
             }
-            if ui.button("Connect").clicked() {
-                if let Some(index) = self.selected_device_idx {
-                    usb::connect_and_write(index, ui.ctx().clone());
+        });
+
+        ui.horizontal(|ui| {
+            let index = self.usb.borrow().selected_index;
+            let status = self.usb.borrow().status.clone();
+            match status {
+                usb::ConnectionStatus::Disconnected => {
+                    ui.label("Status: Disconnected");
+                    if let Some(idx) = index {
+                        if ui.button("Connect").clicked() {
+                            usb::connect(idx, Rc::clone(&self.usb), ui.ctx().clone());
+                        }
+                    }
+                }
+                usb::ConnectionStatus::Connecting => {
+                    ui.spinner();
+                    ui.label("Connecting...");
+                }
+                usb::ConnectionStatus::Connected => {
+                    ui.colored_label(egui::Color32::GREEN, "Status: Connected");
+                    if ui.button("Disconnect").clicked() {
+                        usb::disconnect(Rc::clone(&self.usb), ui.ctx().clone());
+                    }
+                }
+                usb::ConnectionStatus::Error(msg) => {
+                    ui.colored_label(egui::Color32::RED, format!("Error: {msg}"));
+                    if let Some(idx) = index {
+                        if ui.button("Retry").clicked() {
+                            usb::connect(idx, Rc::clone(&self.usb), ui.ctx().clone());
+                        }
+                    }
                 }
             }
         });
