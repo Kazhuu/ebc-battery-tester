@@ -26,7 +26,14 @@ env_logger = "0.11.8"
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4.50"
-web-sys = "0.3.70"              # to access the DOM (to hide the loading text)
+web-sys = { version = "0.3.70", features = [
+    "Navigator",
+    "Usb",
+    "UsbDevice",
+    "UsbDeviceFilter",
+    "UsbDeviceRequestOptions",
+    "Window",
+] }
 
 [profile.release]
 opt-level = 2 # fast and small wasm

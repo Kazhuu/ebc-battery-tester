@@ -1,56 +1,93 @@
-/// We derive Deserialize/Serialize so we can persist app state on shutdown.
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(default)] // if we add new fields, give them default values when deserializing old state
-pub struct TemplateApp {
-    // Example stuff:
-    label: String,
+use crate::usb;
+use std::{cell::RefCell, rc::Rc};
 
-    #[serde(skip)] // This how you opt-out of serialization of a field
-    value: f32,
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(default)]
+pub struct MainApp {
+    #[serde(skip)]
+    usb_devices: Rc<RefCell<Vec<usb::UsbDeviceInfo>>>,
+
+    #[serde(skip)]
+    selected_device_idx: Option<usize>,
 }
 
-impl Default for TemplateApp {
+impl Default for MainApp {
     fn default() -> Self {
         Self {
-            // Example stuff:
-            label: "Hello World!".to_owned(),
-            value: 2.7,
+            usb_devices: Default::default(),
+            selected_device_idx: None,
         }
     }
 }
 
-impl TemplateApp {
-    /// Called once before the first frame.
+impl MainApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // This is also where you can customize the look and feel of egui using
-        // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
-
-        // Load previous app state (if any).
-        // Note that you must enable the `persistence` feature for this to work.
-        if let Some(storage) = cc.storage {
+        let app: Self = if let Some(storage) = cc.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
         } else {
             Default::default()
-        }
+        };
+
+        usb::enumerate_devices(
+            Rc::clone(&app.usb_devices),
+            cc.egui_ctx.clone(),
+        );
+
+        app
+    }
+
+    fn usb_ui(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        ui.heading("USB Device");
+
+        let device_labels: Vec<String> = self
+            .usb_devices
+            .borrow()
+            .iter()
+            .map(|d| d.to_string())
+            .collect();
+
+        let selected_text = self
+            .selected_device_idx
+            .and_then(|i| device_labels.get(i))
+            .map_or_else(|| "No device selected".to_owned(), Clone::clone);
+
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("usb_device_selector")
+                .selected_text(selected_text)
+                .show_ui(ui, |ui| {
+                    if device_labels.is_empty() {
+                        ui.label("No devices found");
+                    }
+                    for (i, label) in device_labels.iter().enumerate() {
+                        ui.selectable_value(&mut self.selected_device_idx, Some(i), label);
+                    }
+                });
+
+            if ui.button("Refresh").clicked() {
+                usb::enumerate_devices(
+                    Rc::clone(&self.usb_devices),
+                    ui.ctx().clone(),
+                );
+            }
+            if ui.button("Pair new device").clicked() {
+                usb::request_device(
+                    Rc::clone(&self.usb_devices),
+                    ui.ctx().clone(),
+                );
+            }
+        });
     }
 }
 
-impl eframe::App for TemplateApp {
-    /// Called by the framework to save state before shutdown.
+impl eframe::App for MainApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
 
-    /// Called each time the UI needs repainting, which may be many times per second.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
-        // For inspiration and more examples, go to https://emilk.github.io/egui
-
         egui::Panel::top("top_panel").show_inside(ui, |ui| {
-            // The top panel is often a good place for a menu bar:
-
             egui::MenuBar::new().ui(ui, |ui| {
-                // NOTE: no File->Quit on web pages!
                 let is_web = cfg!(target_arch = "wasm32");
                 if !is_web {
                     ui.menu_button("File", |ui| {
@@ -60,31 +97,12 @@ impl eframe::App for TemplateApp {
                     });
                     ui.add_space(16.0);
                 }
-
                 egui::widgets::global_theme_preference_buttons(ui);
             });
         });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-            ui.heading("eframe template");
-
-            ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(&mut self.label);
-            });
-
-            ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                self.value += 1.0;
-            }
-
-            ui.separator();
-
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/main/",
-                "Source code."
-            ));
+            self.usb_ui(ui);
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 powered_by_egui_and_eframe(ui);

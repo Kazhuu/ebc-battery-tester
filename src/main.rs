@@ -22,7 +22,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "eframe template",
         native_options,
-        Box::new(|cc| Ok(Box::new(ebc_battery_tester::TemplateApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(ebc_battery_tester::MainApp::new(cc)))),
     )
 }
 
@@ -52,7 +52,7 @@ fn main() {
             .start(
                 canvas,
                 web_options,
-                Box::new(|cc| Ok(Box::new(ebc_battery_tester::TemplateApp::new(cc)))),
+                Box::new(|cc| Ok(Box::new(ebc_battery_tester::MainApp::new(cc)))),
             )
             .await;
 
