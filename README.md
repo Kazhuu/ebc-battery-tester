@@ -5,8 +5,17 @@ This project is WIP!
 Cross-platform desktop and browser application to control ZTE Tech EBC-A20
 battery tester.
 
-Built with egui and eframe and is based on the
-https://github.com/JOGAsoft/EBC-controller.
+The app is built with Rust using egui and eframe.
+
+## Important Notes
+
+The browser version uses WebUSB to communicate with the device. Only the USB
+cable that ships with the device is supported. The cable has a built-in CH340
+serial chip, even though the device end is a mini USB plug, so any regular mini
+USB cable will not work.
+
+The CH340 chip must be configured with the correct settings before use. WebUSB
+only works in Chrome, Edge, and Opera.
 
 ## Testing locally
 
@@ -65,7 +74,6 @@ SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE="0664"
 # Release ch341 kernel driver immediately after it binds, so WebUSB can claim the interface
 ACTION=="bind", SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", DRIVER=="ch341", RUN+="/bin/sh -c 'echo %k > /sys/bus/usb/drivers/ch341/unbind'"
 EOF
-sudo udevadm control --reload-rules
 ```
 
 Then reload the udev rules with

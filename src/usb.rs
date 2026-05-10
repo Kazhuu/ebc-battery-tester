@@ -59,7 +59,9 @@ pub fn request_device(devices: Rc<RefCell<Vec<UsbDeviceInfo>>>, ctx: egui::Conte
             return;
         };
         let usb = window.navigator().usb();
-        let options = web_sys::UsbDeviceRequestOptions::new(&[]);
+        let mut filter = web_sys::UsbDeviceFilter::new();
+        filter.vendor_id(0x1A86);
+        let options = web_sys::UsbDeviceRequestOptions::new(&[filter]);
         match JsFuture::from(usb.request_device(&options)).await {
             Ok(_) => enumerate_devices(devices, ctx),
             Err(e) => {
