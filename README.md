@@ -1,10 +1,12 @@
-# EBC Battery Tester
+# EBC-A20 Battery Tester
 
 This project is WIP!
 
-Cross-platform desktop and browser application to control ZTE Tech EBC A-series battery testers and electronic loads.
+Cross-platform desktop and browser application to control ZTE Tech EBC-A20
+battery tester.
 
-Built with egui and eframe and is based on the https://github.com/JOGAsoft/EBC-controller.
+Built with egui and eframe and is based on the
+https://github.com/JOGAsoft/EBC-controller.
 
 ## Testing locally
 
@@ -43,13 +45,17 @@ We use [Trunk](https://trunkrs.dev/) to build for web target.
 
 ## Linux WebUSB udev Rule
 
-When you plug in the USB cable, Linux `ch341` driver will claim the USB device and you cannot connect to it using WebUSB anymore. You need to unbind it first. You can do one time unbind with following command. This will work until you plug in the USB cable again.
+When you plug in the USB cable, inux `ch341` driver will claim the USB device
+and you cannot connect to it using WebUSB anymore. You need to unbind it first.
+You can do one time unbind with following command. This will work until you plug
+in the USB cable again.
 
 ```bash
 sudo sh -c 'echo "1-2.3:1.0" > /sys/bus/usb/drivers/ch341/unbind'
 ```
 
-If you want to automatically unbind this when the cable is plugged in, you can add following udev rule
+If you want to automatically unbind this when the cable is plugged in, you can
+add following udev rule
 
 ```bash
 sudo tee /etc/udev/rules.d/99-ebc-tester.rules << 'EOF'
@@ -72,5 +78,10 @@ Now you should be to connect to the serial port with WebUSB.
 
 ## Important Resources
 
-* Documentation of the communication protocol used: https://pop.fsck.pl/hardware/zketech-ebc-a20.html.
-* Python tool to control EBC device from the command-line: https://gist.github.com/enkiusz/6408645efd622b8a638a14957cd37f47.
+* Documentation of the communication protocol used:
+  https://pop.fsck.pl/hardware/zketech-ebc-a20.html.
+* Python tool to control EBC device from the command-line:
+  https://gist.github.com/enkiusz/6408645efd622b8a638a14957cd37f47.
+* Example code how to configure CH340 serial chip with WebUSB with correct
+  settings like baud rate and other things:
+  https://github.com/selevo/WebUsbSerialTerminal/blob/main/serial.js
