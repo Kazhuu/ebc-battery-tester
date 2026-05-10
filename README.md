@@ -41,6 +41,35 @@ We use [Trunk](https://trunkrs.dev/) to build for web target.
 >       - <branch name>
 > ```
 
+## Linux WebUSB udev Rule
+
+When you plug in the USB cable, Linux `ch341` driver will claim the USB device and you cannot connect to it using WebUSB anymore. You need to unbind it first. You can do one time unbind with following command. This will work until you plug in the USB cable again.
+
+```bash
+sudo sh -c 'echo "1-2.3:1.0" > /sys/bus/usb/drivers/ch341/unbind'
+```
+
+If you want to automatically unbind this when the cable is plugged in, you can add following udev rule
+
+```bash
+sudo tee /etc/udev/rules.d/99-ebc-tester.rules << 'EOF'
+# Allow browser access to EBC battery tester (CH340, vid:1a86 pid:7523)
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE="0664", TAG+="uaccess"
+
+# Release ch341 kernel driver immediately after it binds, so WebUSB can claim the interface
+ACTION=="bind", SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", DRIVER=="ch341", RUN+="/bin/sh -c 'echo %k > /sys/bus/usb/drivers/ch341/unbind'"
+EOF
+sudo udevadm control --reload-rules
+```
+
+Then reload the udev rules with
+
+```bash
+sudo udevadm control --reload-rules
+```
+
+Now you should be to connect to the serial port with WebUSB.
+
 ## Important Resources
 
 * Documentation of the communication protocol used: https://pop.fsck.pl/hardware/zketech-ebc-a20.html.

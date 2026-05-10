@@ -76,6 +76,11 @@ impl MainApp {
                     ui.ctx().clone(),
                 );
             }
+            if ui.button("Connect").clicked() {
+                if let Some(index) = self.selected_device_idx {
+                    usb::connect_and_write(index, ui.ctx().clone());
+                }
+            }
         });
     }
 }
