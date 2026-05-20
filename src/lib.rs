@@ -2,4 +2,5 @@
 
 mod app;
 mod usb;
+mod device;
 pub use app::MainApp;
