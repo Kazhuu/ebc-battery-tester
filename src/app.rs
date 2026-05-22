@@ -1,7 +1,6 @@
 use crate::usb;
 use crate::device;
 use std::collections::VecDeque;
-use std::{cell::RefCell, rc::Rc};
 use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
 use futures::channel::mpsc;
 use device::{DeviceCommand, ConnectionStatus, DeviceEvent};
@@ -9,13 +8,16 @@ use device::{DeviceCommand, ConnectionStatus, DeviceEvent};
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct MainApp {
-    // TODO: Remove this or refactor to not hold so many stuff.
     #[serde(skip)]
-    usb: Rc<RefCell<usb::UsbState>>,
+    available_devices: Vec<device::UsbDeviceInfo>,
+    #[serde(skip)]
+    selected_device_index: Option<usize>,
     #[serde(skip)]
     cmd_tx: UnboundedSender<DeviceCommand>,
     #[serde(skip)]
     event_rx: UnboundedReceiver<DeviceEvent>,
+    #[serde(skip)]
+    event_tx: UnboundedSender<DeviceEvent>,
     #[serde(skip)]
     status: ConnectionStatus,
     #[serde(skip)]
@@ -25,9 +27,11 @@ pub struct MainApp {
 impl Default for MainApp {
     fn default() -> Self {
         Self {
-            usb: Default::default(),
+            available_devices: Default::default(),
+            selected_device_index: None,
             cmd_tx: mpsc::unbounded::<DeviceCommand>().0,
             event_rx: mpsc::unbounded::<DeviceEvent>().1,
+            event_tx: mpsc::unbounded::<DeviceEvent>().0,
             status: ConnectionStatus::Disconnected,
             frames: Vec::new(),
         }
@@ -41,17 +45,13 @@ impl MainApp {
         } else {
             Default::default()
         };
-        // TODO: Make enumrate device return a better type than using the usb state.
-        usb::enumerate_devices(
-            Rc::clone(&app.usb),
-            cc.egui_ctx.clone(),
-        );
-
         let (cmd_tx, cmd_rx) = mpsc::unbounded::<DeviceCommand>();
         let (event_tx, event_rx) = mpsc::unbounded::<DeviceEvent>();
-        usb::spawn_device_task(cc.egui_ctx.clone(), cmd_rx, event_tx);
+        usb::spawn_device_task(cc.egui_ctx.clone(), cmd_rx, event_tx.clone());
+        usb::enumerate_devices(event_tx.clone(), cc.egui_ctx.clone());
         app.cmd_tx = cmd_tx;
         app.event_rx = event_rx;
+        app.event_tx = event_tx;
         app
     }
 
@@ -60,17 +60,13 @@ impl MainApp {
         ui.heading("USB Device");
 
         let device_labels: Vec<String> = self
-            .usb
-            .borrow()
             .available_devices
             .iter()
             .map(|d| d.to_string())
             .collect();
 
         let selected_text = self
-            .usb
-            .borrow()
-            .selected_index
+            .selected_device_index
             .and_then(|i| device_labels.get(i))
             .map_or_else(|| "No device selected".to_owned(), Clone::clone);
 
@@ -82,26 +78,23 @@ impl MainApp {
                         ui.label("No devices found");
                     }
                     for (i, label) in device_labels.iter().enumerate() {
-                        ui.selectable_value(&mut self.usb.borrow_mut().selected_index, Some(i), label);
+                        ui.selectable_value(&mut self.selected_device_index, Some(i), label);
                     }
                 });
 
             if ui.button("Refresh").clicked() {
-                // TODO: Make enumrate device return a better type than using the usb state.
-                usb::enumerate_devices(Rc::clone(&self.usb), ui.ctx().clone());
+                usb::enumerate_devices(self.event_tx.clone(), ui.ctx().clone());
             }
             if ui.button("Pair new device").clicked() {
-                // TODO: Make enumrate device return a better type than using the usb state.
-                usb::request_device(Rc::clone(&self.usb), ui.ctx().clone());
+                usb::request_device(self.event_tx.clone(), ui.ctx().clone());
             }
         });
 
         ui.horizontal(|ui| {
-            let index = self.usb.borrow().selected_index;
             match &self.status {
                 ConnectionStatus::Disconnected => {
                     ui.label("Status: Disconnected");
-                    if let Some(idx) = index {
+                    if let Some(idx) = self.selected_device_index {
                         if ui.button("Connect").clicked() {
                             self.cmd_tx.unbounded_send(DeviceCommand::Connect(idx)).ok();
                         }
@@ -119,7 +112,7 @@ impl MainApp {
                 }
                 ConnectionStatus::Error(msg) => {
                     ui.colored_label(egui::Color32::RED, format!("Error: {msg}"));
-                    if let Some(idx) = index {
+                    if let Some(idx) = self.selected_device_index {
                         if ui.button("Retry").clicked() {
                             self.cmd_tx.unbounded_send(DeviceCommand::Connect(idx)).ok();
                         }
@@ -142,6 +135,10 @@ impl eframe::App for MainApp {
                 DeviceEvent::StatusChanged(status) => {
                     log::info!("Device status changed: {:?}", status);
                     self.status = status;
+                }
+                DeviceEvent::DevicesUpdated(devices) => {
+                    log::info!("Available devices updated: {:?}", devices);
+                    self.available_devices = devices;
                 }
                 DeviceEvent::Frame(frame) => {
                     log::info!("Received frame: {:?}", frame);

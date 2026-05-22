@@ -1,65 +1,21 @@
-use std::collections::VecDeque;
-use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
-use crate::device::{ConnectionStatus, DeviceCommand, DeviceEvent};
+use crate::device::{ConnectionStatus, DeviceCommand, DeviceEvent, UsbDeviceInfo};
 use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
 use futures::channel::oneshot;
 use futures::StreamExt as _;
 use futures::FutureExt as _;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct UsbDeviceInfo {
-    pub product_name: String,
-    pub manufacturer_name: String,
-    pub vendor_id: u16,
-    pub product_id: u16,
+const VENDOR_ID: u16 = 0x1A86;
+
+struct UsbState {
+    device: web_sys::UsbDevice,
+    out_endpoint_num: u8,
+    in_endpoint_num: u8,
 }
 
-// TODO: Remove extra fields and clean this up to elsewhere.
-pub struct UsbState {
-    pub available_devices: Vec<UsbDeviceInfo>,
-    pub selected_index: Option<usize>,
-    pub status: ConnectionStatus,
-    pub device: Option<web_sys::UsbDevice>,
-    pub interface_num: Option<u8>,
-    pub out_endpoint_num: Option<u8>,
-    pub in_endpoint_num: Option<u8>,
-    pub rx_frames: VecDeque<Vec<u8>>,
-}
-
-impl Default for UsbState {
-    fn default() -> Self {
-        Self {
-            available_devices: Vec::new(),
-            selected_index: None,
-            status: ConnectionStatus::Disconnected,
-            device: None,
-            interface_num: None,
-            out_endpoint_num: None,
-            in_endpoint_num: None,
-            rx_frames: VecDeque::new(),
-        }
-    }
-}
-
-impl std::fmt::Display for UsbDeviceInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.product_name.is_empty() {
-            write!(f, "Unknown ({:04x}:{:04x})", self.vendor_id, self.product_id)
-        } else {
-            write!(
-                f,
-                "{} ({:04x}:{:04x})",
-                self.product_name, self.vendor_id, self.product_id
-            )
-        }
-    }
-}
-
-// TODO: Make this return better type.
-pub fn enumerate_devices(usb_state: Rc<RefCell<UsbState>>, ctx: egui::Context) {
+pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>, ctx: egui::Context) {
     wasm_bindgen_futures::spawn_local(async move {
         let Some(window) = web_sys::window() else {
             return;
@@ -67,17 +23,17 @@ pub fn enumerate_devices(usb_state: Rc<RefCell<UsbState>>, ctx: egui::Context) {
         let usb = window.navigator().usb();
         match JsFuture::from(usb.get_devices()).await {
             Ok(value) => {
-                let mut state = usb_state.borrow_mut();
-                state.available_devices.clear();
+                let mut devices = Vec::new();
                 for item in js_sys::Array::from(&value) {
                     let device: web_sys::UsbDevice = item.unchecked_into();
-                    state.available_devices.push(UsbDeviceInfo {
+                    devices.push(UsbDeviceInfo {
                         product_name: device.product_name().unwrap_or_default(),
                         manufacturer_name: device.manufacturer_name().unwrap_or_default(),
                         vendor_id: device.vendor_id(),
                         product_id: device.product_id(),
                     });
                 }
+                event_tx.unbounded_send(DeviceEvent::DevicesUpdated(devices)).ok();
                 ctx.request_repaint();
             }
             Err(e) => {
@@ -87,18 +43,17 @@ pub fn enumerate_devices(usb_state: Rc<RefCell<UsbState>>, ctx: egui::Context) {
     });
 }
 
-// TODO: Make this return better type and not use the usb state.
-pub fn request_device(usb_state: Rc<RefCell<UsbState>>, ctx: egui::Context) {
+pub fn request_device(event_tx: UnboundedSender<DeviceEvent>, ctx: egui::Context) {
     wasm_bindgen_futures::spawn_local(async move {
         let Some(window) = web_sys::window() else {
             return;
         };
         let usb = window.navigator().usb();
         let filter = web_sys::UsbDeviceFilter::new();
-        filter.set_vendor_id(0x1A86);
+        filter.set_vendor_id(VENDOR_ID);
         let options = web_sys::UsbDeviceRequestOptions::new(&[filter]);
         match JsFuture::from(usb.request_device(&options)).await {
-            Ok(_) => enumerate_devices(usb_state, ctx),
+            Ok(_) => enumerate_devices(event_tx, ctx),
             Err(e) => {
                 log::warn!("USB device request cancelled or denied: {e:?}");
             }
@@ -112,6 +67,96 @@ pub fn spawn_device_task(
     event_tx: UnboundedSender<DeviceEvent>,
 ) {
     wasm_bindgen_futures::spawn_local(device_task(ctx, cmd_rx, event_tx));
+}
+
+async fn device_task(
+    ctx: egui::Context,
+    mut cmd_rx: UnboundedReceiver<DeviceCommand>,
+    event_tx: UnboundedSender<DeviceEvent>,
+) {
+    let mut stop_reading_tx: Option<oneshot::Sender<()>> = None;
+    let mut device: Option<web_sys::UsbDevice> = None;
+    let mut out_endpoint_num: Option<u8> = None;
+    loop {
+        match cmd_rx.next().await {
+            Some(DeviceCommand::Connect(idx)) => {
+                event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connecting)).ok();
+                ctx.request_repaint();
+                match connect(idx).await {
+                    Ok(state) => {
+                        let dev = state.device;
+                        out_endpoint_num = Some(state.out_endpoint_num);
+                        let (stop_tx, stop_rx) = oneshot::channel();
+                        stop_reading_tx = Some(stop_tx);
+                        event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connected)).ok();
+                        wasm_bindgen_futures::spawn_local(reading_task(
+                            dev.clone(),
+                            state.in_endpoint_num,
+                            event_tx.clone(),
+                            stop_rx,
+                            ctx.clone(),
+                        ));
+                        device = Some(dev);
+                        ctx.request_repaint();
+                    }
+                    Err(e) => {
+                        log::error!("Failed to connect: {e}");
+                        event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Error(e))).ok();
+                        ctx.request_repaint();
+                    }
+                }
+            }
+            Some(DeviceCommand::Disconnect) => {
+                if device.is_some() && out_endpoint_num.is_some() {
+                    if let Some(stop_tx) = stop_reading_tx.take() {
+                        let _ = stop_tx.send(());
+                    }
+                    let _ = disconnect(&device.as_ref().unwrap(), out_endpoint_num.unwrap()).await;
+                    device = None;
+                    out_endpoint_num = None;
+                }
+                event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Disconnected)).ok();
+                ctx.request_repaint();
+            }
+            None => break,
+        }
+    }
+}
+
+async fn reading_task(
+    device: web_sys::UsbDevice,
+    in_endpoint: u8,
+    event_tx: UnboundedSender<DeviceEvent>,
+    mut stop_reading_rx: oneshot::Receiver<()>,
+    ctx: egui::Context,
+) {
+    loop {
+        let transfer = JsFuture::from(device.transfer_in(in_endpoint, 30)).fuse();
+        futures::pin_mut!(transfer);
+        futures::select! {
+            result = transfer => match result {
+                Ok(value) => {
+                    let result: web_sys::UsbInTransferResult = value.unchecked_into();
+                    if let Some(data) = result.data() {
+                        let bytes = js_sys::Uint8Array::new(&data.buffer()).to_vec();
+                        if !bytes.is_empty() {
+                            event_tx.unbounded_send(DeviceEvent::Frame(bytes)).ok();
+                            ctx.request_repaint();
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Bulk IN transfer failed: {e:?}");
+                    event_tx.unbounded_send(DeviceEvent::StatusChanged(
+                        ConnectionStatus::Error("Read error: connection lost".to_owned()),
+                    )).ok();
+                    ctx.request_repaint();
+                    return;
+                }
+            },
+            _ = stop_reading_rx => return,
+        }
+    }
 }
 
 // Configures the CH340 USB-serial chip for 9600 baud, 8 data bits, odd parity, 1 stop bit.
@@ -179,7 +224,9 @@ async fn connect(device_index: usize) -> Result<UsbState, String> {
     let config = device
         .configuration()
         .ok_or("USB device has no active configuration")?;
-    let mut usb_state = UsbState::default();
+    let mut interface_num: Option<u8> = None;
+    let mut out_endpoint_num: Option<u8> = None;
+    let mut in_endpoint_num: Option<u8> = None;
     for iface_val in config.interfaces() {
         let iface: web_sys::UsbInterface = iface_val.unchecked_into();
         let interface_number = iface.interface_number();
@@ -187,18 +234,18 @@ async fn connect(device_index: usize) -> Result<UsbState, String> {
             let ep: web_sys::UsbEndpoint = ep_val.unchecked_into();
             if ep.type_() == web_sys::UsbEndpointType::Bulk {
                 if ep.direction() == web_sys::UsbDirection::Out {
-                    usb_state.interface_num = Some(interface_number);
-                    usb_state.out_endpoint_num = Some(ep.endpoint_number());
+                    interface_num = Some(interface_number);
+                    out_endpoint_num = Some(ep.endpoint_number());
                 } else if ep.direction() == web_sys::UsbDirection::In {
-                    usb_state.in_endpoint_num = Some(ep.endpoint_number());
+                    in_endpoint_num = Some(ep.endpoint_number());
                 }
             }
         }
     }
     let (Some(interface_num), Some(out_endpoint_num), Some(in_endpoint_num)) = (
-        usb_state.interface_num,
-        usb_state.out_endpoint_num,
-        usb_state.in_endpoint_num,
+        interface_num,
+        out_endpoint_num,
+        in_endpoint_num,
     ) else {
         return Err("No bulk endpoints found on USB device".to_owned());
     };
@@ -217,8 +264,11 @@ async fn connect(device_index: usize) -> Result<UsbState, String> {
         .await
         .map_err(|e| format!("Connect command failed: {e:?}"))?;
 
-    usb_state.device = Some(device);
-    Ok(usb_state)
+    Ok(UsbState {
+        device,
+        out_endpoint_num,
+        in_endpoint_num,
+    })
 }
 
 async fn disconnect(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
@@ -232,94 +282,4 @@ async fn disconnect(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result
         .map_err(|e| format!("Connect command failed: {e:?}"))?;
     JsFuture::from(device.close()).await?;
     Ok(())
-}
-
-async fn reading_task(
-    device: web_sys::UsbDevice,
-    in_endpoint: u8,
-    event_tx: UnboundedSender<DeviceEvent>,
-    mut stop_reading_rx: oneshot::Receiver<()>,
-    ctx: egui::Context,
-) {
-    loop {
-        let transfer = JsFuture::from(device.transfer_in(in_endpoint, 30)).fuse();
-        futures::pin_mut!(transfer);
-        futures::select! {
-            result = transfer => match result {
-                Ok(value) => {
-                    let result: web_sys::UsbInTransferResult = value.unchecked_into();
-                    if let Some(data) = result.data() {
-                        let bytes = js_sys::Uint8Array::new(&data.buffer()).to_vec();
-                        if !bytes.is_empty() {
-                            event_tx.unbounded_send(DeviceEvent::Frame(bytes)).ok();
-                            ctx.request_repaint();
-                        }
-                    }
-                }
-                Err(e) => {
-                    log::error!("Bulk IN transfer failed: {e:?}");
-                    event_tx.unbounded_send(DeviceEvent::StatusChanged(
-                        ConnectionStatus::Error("Read error: connection lost".to_owned()),
-                    )).ok();
-                    ctx.request_repaint();
-                    return;
-                }
-            },
-            _ = stop_reading_rx => return,
-        }
-    }
-}
-
-async fn device_task(
-    ctx: egui::Context,
-    mut cmd_rx: UnboundedReceiver<DeviceCommand>,
-    event_tx: UnboundedSender<DeviceEvent>,
-) {
-    let mut stop_reading_tx: Option<oneshot::Sender<()>> = None;
-    let mut device: Option<web_sys::UsbDevice> = None;
-    let mut out_endpoint_num: Option<u8> = None;
-    loop {
-        match cmd_rx.next().await {
-            Some(DeviceCommand::Connect(idx)) => {
-                event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connecting)).ok();
-                ctx.request_repaint();
-                match connect(idx).await {
-                    Ok(state) => {
-                        let dev = state.device.unwrap();
-                        out_endpoint_num = state.out_endpoint_num;
-                        let (stop_tx, stop_rx) = oneshot::channel();
-                        stop_reading_tx = Some(stop_tx);
-                        event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connected)).ok();
-                        wasm_bindgen_futures::spawn_local(reading_task(
-                            dev.clone(),
-                            state.in_endpoint_num.unwrap(),
-                            event_tx.clone(),
-                            stop_rx,
-                            ctx.clone(),
-                        ));
-                        device = Some(dev);
-                        ctx.request_repaint();
-                    }
-                    Err(e) => {
-                        log::error!("Failed to connect: {e}");
-                        event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Error(e))).ok();
-                        ctx.request_repaint();
-                    }
-                }
-            }
-            Some(DeviceCommand::Disconnect) => {
-                if device.is_some() && out_endpoint_num.is_some() {
-                    if let Some(stop_tx) = stop_reading_tx.take() {
-                        let _ = stop_tx.send(());
-                    }
-                    let _ = disconnect(&device.as_ref().unwrap(), out_endpoint_num.unwrap()).await;
-                    device = None;
-                    out_endpoint_num = None;
-                }
-                event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Disconnected)).ok();
-                ctx.request_repaint();
-            }
-            None => break,
-        }
-    }
 }
