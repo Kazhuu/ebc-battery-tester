@@ -5,6 +5,9 @@ use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 use crate::device::{ConnectionStatus, DeviceCommand, DeviceEvent};
 use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
+use futures::channel::oneshot;
+use futures::StreamExt as _;
+use futures::FutureExt as _;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UsbDeviceInfo {
@@ -231,31 +234,38 @@ async fn disconnect(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result
     Ok(())
 }
 
-async fn start_reading(
-    device: &web_sys::UsbDevice,
+async fn reading_task(
+    device: web_sys::UsbDevice,
     in_endpoint: u8,
-    event_tx: &UnboundedSender<DeviceEvent>,
-) -> Option<DeviceCommand> {
-    use futures::{FutureExt as _, StreamExt as _};
+    event_tx: UnboundedSender<DeviceEvent>,
+    mut stop_reading_rx: oneshot::Receiver<()>,
+    ctx: egui::Context,
+) {
     loop {
         let transfer = JsFuture::from(device.transfer_in(in_endpoint, 30)).fuse();
-        match transfer.await {
-            Ok(value) => {
-                let result: web_sys::UsbInTransferResult = value.unchecked_into();
-                if let Some(data) = result.data() {
-                    let bytes = js_sys::Uint8Array::new(&data.buffer()).to_vec();
-                    if !bytes.is_empty() {
-                        event_tx.unbounded_send(DeviceEvent::Frame(bytes)).ok();
+        futures::pin_mut!(transfer);
+        futures::select! {
+            result = transfer => match result {
+                Ok(value) => {
+                    let result: web_sys::UsbInTransferResult = value.unchecked_into();
+                    if let Some(data) = result.data() {
+                        let bytes = js_sys::Uint8Array::new(&data.buffer()).to_vec();
+                        if !bytes.is_empty() {
+                            event_tx.unbounded_send(DeviceEvent::Frame(bytes)).ok();
+                            ctx.request_repaint();
+                        }
                     }
                 }
-            }
-            Err(e) => {
-                log::error!("Bulk IN transfer failed: {e:?}");
-                event_tx.unbounded_send(DeviceEvent::StatusChanged(
-                    ConnectionStatus::Error("Read error: connection lost".to_owned()),
-                )).ok();
-                return None;
-            }
+                Err(e) => {
+                    log::error!("Bulk IN transfer failed: {e:?}");
+                    event_tx.unbounded_send(DeviceEvent::StatusChanged(
+                        ConnectionStatus::Error("Read error: connection lost".to_owned()),
+                    )).ok();
+                    ctx.request_repaint();
+                    return;
+                }
+            },
+            _ = stop_reading_rx => return,
         }
     }
 }
@@ -265,11 +275,9 @@ async fn device_task(
     mut cmd_rx: UnboundedReceiver<DeviceCommand>,
     event_tx: UnboundedSender<DeviceEvent>,
 ) {
-    use futures::StreamExt as _;
+    let mut stop_reading_tx: Option<oneshot::Sender<()>> = None;
     let mut device: Option<web_sys::UsbDevice> = None;
-    let mut in_endpoint_num: Option<u8> = None;
     let mut out_endpoint_num: Option<u8> = None;
-    let mut interface_num: Option<u8> = None;
     loop {
         match cmd_rx.next().await {
             Some(DeviceCommand::Connect(idx)) => {
@@ -277,12 +285,19 @@ async fn device_task(
                 ctx.request_repaint();
                 match connect(idx).await {
                     Ok(state) => {
-                        device = state.device;
-                        in_endpoint_num = state.in_endpoint_num;
+                        let dev = state.device.unwrap();
                         out_endpoint_num = state.out_endpoint_num;
-                        interface_num = state.interface_num;
+                        let (stop_tx, stop_rx) = oneshot::channel();
+                        stop_reading_tx = Some(stop_tx);
                         event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connected)).ok();
-                        start_reading(device.as_ref().unwrap(), in_endpoint_num.unwrap(), &event_tx).await;
+                        wasm_bindgen_futures::spawn_local(reading_task(
+                            dev.clone(),
+                            state.in_endpoint_num.unwrap(),
+                            event_tx.clone(),
+                            stop_rx,
+                            ctx.clone(),
+                        ));
+                        device = Some(dev);
                         ctx.request_repaint();
                     }
                     Err(e) => {
@@ -294,11 +309,12 @@ async fn device_task(
             }
             Some(DeviceCommand::Disconnect) => {
                 if device.is_some() && out_endpoint_num.is_some() {
-                    disconnect(&device.as_ref().unwrap(), out_endpoint_num.unwrap()).await;
+                    if let Some(stop_tx) = stop_reading_tx.take() {
+                        let _ = stop_tx.send(());
+                    }
+                    let _ = disconnect(&device.as_ref().unwrap(), out_endpoint_num.unwrap()).await;
                     device = None;
                     out_endpoint_num = None;
-                    in_endpoint_num = None;
-                    interface_num = None;
                 }
                 event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Disconnected)).ok();
                 ctx.request_repaint();
