@@ -107,14 +107,15 @@ async fn device_task(
                 }
             }
             Some(DeviceCommand::Disconnect) => {
-                if device.is_some() && out_endpoint_num.is_some() {
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
                     if let Some(stop_tx) = stop_reading_tx.take() {
                         let _ = stop_tx.send(());
                     }
-                    let _ = disconnect(&device.as_ref().unwrap(), out_endpoint_num.unwrap()).await;
-                    device = None;
-                    out_endpoint_num = None;
+                    let _ = disconnect(device, ep).await;
+
                 }
+                device = None;
+                out_endpoint_num = None;
                 event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Disconnected)).ok();
                 ctx.request_repaint();
             }
@@ -279,7 +280,7 @@ async fn disconnect(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
     JsFuture::from(promise)
         .await
-        .map_err(|e| format!("Connect command failed: {e:?}"))?;
+        .map_err(|e| format!("Disconnect command failed: {e:?}"))?;
     JsFuture::from(device.close()).await?;
     Ok(())
 }
