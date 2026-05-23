@@ -6,6 +6,7 @@ use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
 use futures::channel::oneshot;
 use futures::StreamExt as _;
 use futures::FutureExt as _;
+use crate::device;
 
 const VENDOR_ID: u16 = 0x1A86;
 
@@ -15,7 +16,7 @@ struct UsbState {
     in_endpoint_num: u8,
 }
 
-pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>, ctx: egui::Context) {
+pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
     wasm_bindgen_futures::spawn_local(async move {
         let Some(window) = web_sys::window() else {
             return;
@@ -34,7 +35,6 @@ pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>, ctx: egui::Cont
                     });
                 }
                 event_tx.unbounded_send(DeviceEvent::DevicesUpdated(devices)).ok();
-                ctx.request_repaint();
             }
             Err(e) => {
                 log::error!("Failed to enumerate USB devices: {e:?}");
@@ -43,7 +43,7 @@ pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>, ctx: egui::Cont
     });
 }
 
-pub fn request_device(event_tx: UnboundedSender<DeviceEvent>, ctx: egui::Context) {
+pub fn request_device(event_tx: UnboundedSender<DeviceEvent>) {
     wasm_bindgen_futures::spawn_local(async move {
         let Some(window) = web_sys::window() else {
             return;
@@ -53,7 +53,7 @@ pub fn request_device(event_tx: UnboundedSender<DeviceEvent>, ctx: egui::Context
         filter.set_vendor_id(VENDOR_ID);
         let options = web_sys::UsbDeviceRequestOptions::new(&[filter]);
         match JsFuture::from(usb.request_device(&options)).await {
-            Ok(_) => enumerate_devices(event_tx, ctx),
+            Ok(_) => enumerate_devices(event_tx),
             Err(e) => {
                 log::warn!("USB device request cancelled or denied: {e:?}");
             }
@@ -118,6 +118,19 @@ async fn device_task(
                 out_endpoint_num = None;
                 event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Disconnected)).ok();
                 ctx.request_repaint();
+            }
+            Some(DeviceCommand::Stop) => {
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
+                    let _ = stop(device, ep).await;
+                }
+                return;
+            }
+            Some(DeviceCommand::StartConstantCurrentDischarge(current, cutoff_mv, cutoff_time)) => {
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
+                    if let Err(e) = start_constant_current_discharge(device, ep, current, cutoff_mv, cutoff_time).await {
+                        log::error!("Failed to start constant current discharge mode: {e:?}");
+                    }
+                }
             }
             None => break,
         }
@@ -256,8 +269,7 @@ async fn connect(device_index: usize) -> Result<UsbState, String> {
         .await
         .map_err(|e| format!("Failed to claim interface {interface_num}: {e:?}"))?;
 
-    // Send connect command to the device. This will display '-PC-' on the LCD screen.
-    let mut command = [0xfa_u8, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0xf8];
+    let mut command = device::connect_command();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
@@ -273,8 +285,7 @@ async fn connect(device_index: usize) -> Result<UsbState, String> {
 }
 
 async fn disconnect(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
-    // Send disconnect command to the device. After this '-PC-' disappears from LCD screen.
-    let mut command = [0xfa_u8, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0xf8];
+    let mut command = device::disconnect_command();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
@@ -282,5 +293,27 @@ async fn disconnect(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result
         .await
         .map_err(|e| format!("Disconnect command failed: {e:?}"))?;
     JsFuture::from(device.close()).await?;
+    Ok(())
+}
+
+async fn stop(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
+    let mut command = device::stop_command();
+    let promise = device
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
+    JsFuture::from(promise)
+        .await
+        .map_err(|e: JsValue| format!("Stop command failed: {e:?}"))?;
+    Ok(())
+}
+
+async fn start_constant_current_discharge(device: &web_sys::UsbDevice, out_endpoint_num: u8, current_ma: u16, cutoff_mv: u16, cutoff_time_min: u16) -> Result<(), JsValue> {
+    let mut command = device::start_constant_current_discharge_command(current_ma, cutoff_mv, cutoff_time_min);
+    let promise = device
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
+    JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("Start constant current discharge command failed: {e:?}"))?;
     Ok(())
 }

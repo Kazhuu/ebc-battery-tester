@@ -48,7 +48,7 @@ impl MainApp {
         let (cmd_tx, cmd_rx) = mpsc::unbounded::<DeviceCommand>();
         let (event_tx, event_rx) = mpsc::unbounded::<DeviceEvent>();
         usb::spawn_device_task(cc.egui_ctx.clone(), cmd_rx, event_tx.clone());
-        usb::enumerate_devices(event_tx.clone(), cc.egui_ctx.clone());
+        usb::enumerate_devices(event_tx.clone());
         app.cmd_tx = cmd_tx;
         app.event_rx = event_rx;
         app.event_tx = event_tx;
@@ -83,14 +83,22 @@ impl MainApp {
                 });
 
             if ui.button("Refresh").clicked() {
-                usb::enumerate_devices(self.event_tx.clone(), ui.ctx().clone());
+                usb::enumerate_devices(self.event_tx.clone());
             }
             if ui.button("Pair new device").clicked() {
-                usb::request_device(self.event_tx.clone(), ui.ctx().clone());
+                usb::request_device(self.event_tx.clone());
             }
         });
 
-        ui.horizontal(|ui| {
+        ui.horizontal(|ui: &mut egui::Ui| {
+            if ui.button("Stop").clicked() {
+                self.cmd_tx.unbounded_send(DeviceCommand::Stop).ok();
+            }
+            if ui.button("Start CC Discharge").clicked() {
+                self.cmd_tx
+                    .unbounded_send(DeviceCommand::StartConstantCurrentDischarge(20, 3300, 1))
+                    .ok();
+            }
             match &self.status {
                 ConnectionStatus::Disconnected => {
                     ui.label("Status: Disconnected");

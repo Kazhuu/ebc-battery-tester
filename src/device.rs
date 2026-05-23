@@ -34,6 +34,10 @@ pub enum DeviceCommand {
     // The usize is the index of the device to connect to, as returned by enumerate_devices.
     Connect(usize),
     Disconnect,
+    Stop,
+    // Start constant current discharge mode, with current in mA, cutoff voltage
+    // in mV, and cutoff time in minutes. If cutoff time is 0, means indefinite.
+    StartConstantCurrentDischarge(u16, u16, u16),
 }
 
 #[derive(Debug)]
@@ -42,4 +46,85 @@ pub enum DeviceEvent {
     // Vec of available devices.
     DevicesUpdated(Vec<UsbDeviceInfo>),
     Frame(Vec<u8>),
+}
+
+// Start of Frame (SOF) and End of Frame (EOF) bytes.
+const START_BYTE: u8 = 0xfa;
+const END_BYTE: u8 = 0xf8;
+
+enum CommmandType {
+    Connect = 0x05,
+    Disconnect = 0x06,
+    Stop = 0x02,
+    StartConstantCurrentDischarge = 0x01,
+}
+
+// Encoding to prevent bytes > 240 in the byte stream, allowing 0xfa and 0xf8
+// to be safely used as SOF and EOF markers.
+fn encode_base240(value: u16) -> (u8, u8) {
+    debug_assert!(value < 0xf0 * 0xf0 + 0xf0);
+    let h = (value / 0xf0) as u8;
+    let l = (value % 0xf0) as u8;
+    (h, l)
+}
+
+fn decode_base240(h: u8, l: u8) -> u16 {
+    0xf0 * h as u16 + l as u16
+}
+
+fn xor_checksum(data: &[u8]) -> u8 {
+    data.iter().fold(0, |acc, &b| acc ^ b)
+}
+
+fn build_frame(payload: [u8; 7]) -> [u8; 10] {
+    let mut frame = [0u8; 10];
+    frame[0] = START_BYTE;
+    frame[1..8].copy_from_slice(&payload);
+    frame[8] = xor_checksum(&payload);
+    frame[9] = END_BYTE;
+    frame
+}
+
+// Send connect command to the device. This will display '-PC-' on the LCD screen.
+pub fn connect_command() -> [u8; 10] {
+    build_frame([CommmandType::Connect as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+}
+
+// Send disconnect command to the device. After this '-PC-' disappears from LCD screen.
+pub fn disconnect_command() -> [u8; 10] {
+    build_frame([CommmandType::Disconnect as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+}
+
+// Stop ongoing discharge or charge mode.
+pub fn stop_command() -> [u8; 10] {
+    build_frame([CommmandType::Stop as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+}
+
+// Start constant current discharge mode with given discharge current in mA,
+// cutoff voltage in mV, and cutoff time in minutes. If cutoff time is 0, means
+// indefinite. The LCD screen will display 'DSC' mode. The cutoff current
+// voltage values are quantized to 10mA and 10mV. This is because the device
+// only allows setting the value in steps of 10 minimum.
+pub fn start_constant_current_discharge_command(current_ma: u16, cutoff_mv: u16, cutoff_time_min: u16) -> [u8; 10] {
+    if current_ma < 10 || current_ma > 20000 {
+        panic!("Current must be between 10mA and 20000mA");
+    }
+    if cutoff_mv < 10 || cutoff_mv > 30000 {
+        panic!("Cutoff voltage must be between 10mV and 30000mV");
+    }
+    if cutoff_time_min > 999 {
+        panic!("Cutoff time must be between 0 and 999 minutes");
+    }
+    let (current_h, current_l) = encode_base240(current_ma / 10);
+    let (cutoff_h, cutoff_l) = encode_base240(cutoff_mv / 10);
+    let (time_h, time_l) = encode_base240(cutoff_time_min);
+    build_frame([
+        CommmandType::StartConstantCurrentDischarge as u8,
+        current_h,
+        current_l,
+        cutoff_h,
+        cutoff_l,
+        time_h,
+        time_l,
+    ])
 }
