@@ -21,12 +21,29 @@ impl std::fmt::Display for UsbDeviceInfo {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConnectionStatus {
     Disconnected,
     Connecting,
     Connected,
     Error(String),
+}
+
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub enum DeviceMode {
+    DischargeConstantCurrent,
+    DischargeConstantPower,
+    ChargeConstantVoltage,
+}
+
+impl std::fmt::Display for DeviceMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeviceMode::DischargeConstantCurrent => write!(f, "Discharge Constant Current"),
+            DeviceMode::DischargeConstantPower => write!(f, "Discharge Constant Power"),
+            DeviceMode::ChargeConstantVoltage => write!(f, "Charge Constant Voltage"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -85,6 +102,13 @@ fn build_frame(payload: [u8; 7]) -> [u8; 10] {
     frame
 }
 
+pub const MIN_CURRENT_MA: u16 = 10;
+pub const MAX_CURRENT_MA: u16 = 20000;
+pub const MIN_VOLTAGE_MV: u16 = 10;
+pub const MAX_VOLTAGE_MV: u16 = 30000;
+pub const MIN_CUTOFF_TIME_MIN: u16 = 0;
+pub const MAX_CUTOFF_TIME_MIN: u16 = 999;
+
 // Send connect command to the device. This will display '-PC-' on the LCD screen.
 pub fn connect_command() -> [u8; 10] {
     build_frame([CommmandType::Connect as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
@@ -104,16 +128,18 @@ pub fn stop_command() -> [u8; 10] {
 // cutoff voltage in mV, and cutoff time in minutes. If cutoff time is 0, means
 // indefinite. The LCD screen will display 'DSC' mode. The cutoff current
 // voltage values are quantized to 10mA and 10mV. This is because the device
-// only allows setting the value in steps of 10 minimum.
+// only allows setting the value in steps of 10 minimum. Maximum current is 20A,
+// maximum voltage is 30V, and maximum cutoff time is 999 minutes. These are
+// also same limits the device has.
 pub fn start_constant_current_discharge_command(current_ma: u16, cutoff_mv: u16, cutoff_time_min: u16) -> [u8; 10] {
-    if current_ma < 10 || current_ma > 20000 {
-        panic!("Current must be between 10mA and 20000mA");
+    if current_ma < MIN_CURRENT_MA || current_ma > MAX_CURRENT_MA {
+        panic!("Current must be between {}mA and {}mA", MIN_CURRENT_MA, MAX_CURRENT_MA);
     }
-    if cutoff_mv < 10 || cutoff_mv > 30000 {
-        panic!("Cutoff voltage must be between 10mV and 30000mV");
+    if cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV {
+        panic!("Cutoff voltage must be between {}mV and {}mV", MIN_VOLTAGE_MV, MAX_VOLTAGE_MV);
     }
-    if cutoff_time_min > 999 {
-        panic!("Cutoff time must be between 0 and 999 minutes");
+    if cutoff_time_min < MIN_CUTOFF_TIME_MIN || cutoff_time_min > MAX_CUTOFF_TIME_MIN {
+        panic!("Cutoff time must be between {} and {} minutes", MIN_CUTOFF_TIME_MIN, MAX_CUTOFF_TIME_MIN);
     }
     let (current_h, current_l) = encode_base240(current_ma / 10);
     let (cutoff_h, cutoff_l) = encode_base240(cutoff_mv / 10);

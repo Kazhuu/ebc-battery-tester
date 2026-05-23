@@ -1,9 +1,9 @@
-use crate::usb;
 use crate::device;
-use std::collections::VecDeque;
-use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
+use crate::usb;
+use device::{ConnectionStatus, DeviceCommand, DeviceEvent};
 use futures::channel::mpsc;
-use device::{DeviceCommand, ConnectionStatus, DeviceEvent};
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use std::collections::VecDeque;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
@@ -21,6 +21,13 @@ pub struct MainApp {
     #[serde(skip)]
     status: ConnectionStatus,
     #[serde(skip)]
+    current_device_mode: device::DeviceMode,
+    #[serde(skip)]
+    mode_on: bool,
+    current: f32,
+    voltage: f32,
+    time: u16,
+    #[serde(skip)]
     frames: Vec<VecDeque<u8>>,
 }
 
@@ -33,6 +40,11 @@ impl Default for MainApp {
             event_rx: mpsc::unbounded::<DeviceEvent>().1,
             event_tx: mpsc::unbounded::<DeviceEvent>().0,
             status: ConnectionStatus::Disconnected,
+            current_device_mode: device::DeviceMode::DischargeConstantCurrent,
+            mode_on: false,
+            current: 0.0,
+            voltage: 0.0,
+            time: 0,
             frames: Vec::new(),
         }
     }
@@ -90,41 +102,106 @@ impl MainApp {
             }
         });
 
+        ui.horizontal(|ui: &mut egui::Ui| match &self.status {
+            ConnectionStatus::Disconnected => {
+                ui.label("Status: Disconnected");
+                if let Some(idx) = self.selected_device_index {
+                    if ui.button("Connect").clicked() {
+                        self.cmd_tx.unbounded_send(DeviceCommand::Connect(idx)).ok();
+                    }
+                }
+            }
+            ConnectionStatus::Connecting => {
+                ui.spinner();
+                ui.label("Connecting...");
+            }
+            ConnectionStatus::Connected => {
+                ui.colored_label(egui::Color32::GREEN, "Status: Connected");
+                if ui.button("Disconnect").clicked() {
+                    self.cmd_tx.unbounded_send(DeviceCommand::Disconnect).ok();
+                }
+            }
+            ConnectionStatus::Error(msg) => {
+                ui.colored_label(egui::Color32::RED, format!("Error: {msg}"));
+                if let Some(idx) = self.selected_device_index {
+                    if ui.button("Retry").clicked() {
+                        self.cmd_tx.unbounded_send(DeviceCommand::Connect(idx)).ok();
+                    }
+                }
+            }
+        });
+    }
+
+    fn control_ui(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        ui.heading("Control");
+        ui.label("Device Mode:");
+        egui::ComboBox::from_id_salt("device_mode_selector")
+            .selected_text(self.current_device_mode.to_string())
+            .show_ui(ui, |ui| {
+                for mode in [
+                    device::DeviceMode::DischargeConstantCurrent,
+                    device::DeviceMode::DischargeConstantPower,
+                    device::DeviceMode::ChargeConstantVoltage,
+                ] {
+                    ui.selectable_value(&mut self.current_device_mode, mode, mode.to_string());
+                }
+            });
+        match self.current_device_mode {
+            device::DeviceMode::DischargeConstantCurrent => {
+                ui.label("Discharge Current:");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.current,
+                        device::MIN_CURRENT_MA as f32 / 1000.0
+                            ..=device::MAX_CURRENT_MA as f32 / 1000.0,
+                    )
+                    .suffix(" A"),
+                );
+                ui.label("Cutoff Voltage:");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.voltage,
+                        device::MIN_VOLTAGE_MV as f32 / 1000.0
+                            ..=device::MAX_VOLTAGE_MV as f32 / 1000.0,
+                    )
+                    .suffix(" V"),
+                );
+                ui.label("Cutoff Time:");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.time,
+                        device::MIN_CUTOFF_TIME_MIN..=device::MAX_CUTOFF_TIME_MIN,
+                    )
+                    .suffix(" min")
+                    .text("Indefinite if 0"),
+                );
+            }
+            device::DeviceMode::DischargeConstantPower => {
+                ui.label("TODO");
+            }
+            device::DeviceMode::ChargeConstantVoltage => {
+                ui.label("TODO");
+            }
+        }
         ui.horizontal(|ui: &mut egui::Ui| {
-            if ui.button("Stop").clicked() {
-                self.cmd_tx.unbounded_send(DeviceCommand::Stop).ok();
-            }
-            if ui.button("Start CC Discharge").clicked() {
-                self.cmd_tx
-                    .unbounded_send(DeviceCommand::StartConstantCurrentDischarge(20, 3300, 1))
-                    .ok();
-            }
-            match &self.status {
-                ConnectionStatus::Disconnected => {
-                    ui.label("Status: Disconnected");
-                    if let Some(idx) = self.selected_device_index {
-                        if ui.button("Connect").clicked() {
-                            self.cmd_tx.unbounded_send(DeviceCommand::Connect(idx)).ok();
-                        }
-                    }
+            if self.mode_on {
+                ui.colored_label(egui::Color32::GREEN, "ON");
+                if ui.button("Stop").clicked() {
+                    self.cmd_tx.unbounded_send(DeviceCommand::Stop).ok();
+                    self.mode_on = false;
                 }
-                ConnectionStatus::Connecting => {
-                    ui.spinner();
-                    ui.label("Connecting...");
-                }
-                ConnectionStatus::Connected => {
-                    ui.colored_label(egui::Color32::GREEN, "Status: Connected");
-                    if ui.button("Disconnect").clicked() {
-                        self.cmd_tx.unbounded_send(DeviceCommand::Disconnect).ok();
-                    }
-                }
-                ConnectionStatus::Error(msg) => {
-                    ui.colored_label(egui::Color32::RED, format!("Error: {msg}"));
-                    if let Some(idx) = self.selected_device_index {
-                        if ui.button("Retry").clicked() {
-                            self.cmd_tx.unbounded_send(DeviceCommand::Connect(idx)).ok();
-                        }
-                    }
+            } else {
+                ui.colored_label(egui::Color32::RED, "OFF");
+                if ui.button("Start").clicked() {
+                    self.cmd_tx
+                        .unbounded_send(DeviceCommand::StartConstantCurrentDischarge(
+                            (self.current * 1000.0) as u16,
+                            (self.voltage * 1000.0) as u16,
+                            self.time,
+                        ))
+                        .ok();
+                    self.mode_on = true;
                 }
             }
         });
@@ -171,7 +248,10 @@ impl eframe::App for MainApp {
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             self.usb_ui(ui);
-
+            if self.status == ConnectionStatus::Connected {
+                //self.control_ui(ui);
+            }
+            self.control_ui(ui);
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 powered_by_egui_and_eframe(ui);
                 egui::warn_if_debug_build(ui);
