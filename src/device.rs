@@ -56,7 +56,13 @@ pub enum DeviceCommand {
     // Start constant current discharge mode, with current in mA, cutoff voltage
     // in mV, and cutoff time in minutes. If cutoff time is 0, means indefinite.
     StartConstantCurrentDischarge(u16, u16, u16),
+    // Start constant power discharge mode, with power in W, cutoff voltage in mV,
+    // and cutoff time in minutes. If cutoff time is 0, means indefinite.
     StartConstantPowerDischarge(u16, u16, u16),
+    // Start constant voltage charge mode, with charge current in mA, charge
+    // voltage in mV and cutoff current in mA. The cutoff current is used to
+    // determine when to stop charging.
+    StartConstantVoltageCharge(u16, u16, u16),
     StopConstantCurrentDischarge,
 }
 
@@ -78,6 +84,7 @@ enum CommmandType {
     Stop = 0x02,
     StartConstantCurrentDischarge = 0x01,
     StartConstantPowerDischarge = 0x11,
+    StartConstantVoltageCharge = 0x21,
     // TODO: This seems to trigger discharge constant power???
     Continue = 0x18,
     StopConstantCurrentDischarge = 0x08,
@@ -109,14 +116,21 @@ fn build_frame(payload: [u8; 7]) -> [u8; 10] {
     frame
 }
 
-pub const MIN_CURRENT_MA: u16 = 10;
-pub const MAX_CURRENT_MA: u16 = 20000;
+pub const MIN_DISCHARGE_CURRENT_MA: u16 = 10;
+pub const MAX_DISCHARGE_CURRENT_MA: u16 = 20000;
+pub const MIN_CHARGE_CURRENT_MA: u16 = 10;
+pub const MAX_CHARGE_CURRENT_MA: u16 = 5000;
+pub const MIN_CHARGE_CUTOFF_CURRENT_MA: u16 = 10;
+pub const MAX_CHARGE_CUTOFF_CURRENT_MA: u16 = 9990;
 pub const MIN_POWER_W: u16 = 1;
 pub const MAX_POWER_W: u16 = 999;
 pub const MIN_VOLTAGE_MV: u16 = 10;
 pub const MAX_VOLTAGE_MV: u16 = 30000;
 pub const MIN_CUTOFF_TIME_MIN: u16 = 0;
 pub const MAX_CUTOFF_TIME_MIN: u16 = 999;
+// Max minutes to wait between charge and discharge cycle.
+pub const AUTO_MODE_TIME_MIN_MINS: u16 = 0;
+pub const AUTO_MODE_TIME_MAX_MINS: u16 = 10;
 
 // Send connect command to the device. This will display '-PC-' on the LCD screen.
 pub fn connect_command() -> [u8; 10] {
@@ -151,8 +165,8 @@ pub fn stop_constant_current_discharge_command() -> [u8; 10] {
 // maximum voltage is 30V, and maximum cutoff time is 999 minutes. These are
 // also same limits the device has.
 pub fn start_constant_current_discharge_command(current_ma: u16, cutoff_mv: u16, cutoff_time_min: u16) -> [u8; 10] {
-    if current_ma < MIN_CURRENT_MA || current_ma > MAX_CURRENT_MA {
-        panic!("Current must be between {}mA and {}mA", MIN_CURRENT_MA, MAX_CURRENT_MA);
+    if current_ma < MIN_DISCHARGE_CURRENT_MA || current_ma > MAX_DISCHARGE_CURRENT_MA {
+        panic!("Current must be between {}mA and {}mA", MIN_DISCHARGE_CURRENT_MA, MAX_DISCHARGE_CURRENT_MA);
     }
     if cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV {
         panic!("Cutoff voltage must be between {}mV and {}mV", MIN_VOLTAGE_MV, MAX_VOLTAGE_MV);
@@ -195,5 +209,29 @@ pub fn start_constant_power_discharge_command(power_w: u16, cutoff_mv: u16, cuto
         cutoff_l,
         time_h,
         time_l,
+    ])
+}
+
+pub fn start_constant_voltage_charge_command(current_ma: u16, cutoff_mv: u16, cutoff_current_ma: u16) -> [u8; 10] {
+    if current_ma < MIN_CHARGE_CURRENT_MA || current_ma > MAX_CHARGE_CURRENT_MA {
+        panic!("Current must be between {}mA and {}mA", MIN_CHARGE_CURRENT_MA, MAX_CHARGE_CURRENT_MA);
+    }
+    if cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV {
+        panic!("Cutoff voltage must be between {}mV and {}mV", MIN_VOLTAGE_MV, MAX_VOLTAGE_MV);
+    }
+    if cutoff_current_ma < MIN_CHARGE_CUTOFF_CURRENT_MA || cutoff_current_ma > MAX_CHARGE_CUTOFF_CURRENT_MA {
+        panic!("Cutoff current must be between {}mA and {}mA", MIN_CHARGE_CUTOFF_CURRENT_MA, MAX_CHARGE_CUTOFF_CURRENT_MA);
+    }
+    let (current_h, current_l) = encode_base240(current_ma / 10);
+    let (cutoff_h, cutoff_l) = encode_base240(cutoff_mv / 10);
+    let (cutoff_current_h, cutoff_current_l) = encode_base240(cutoff_current_ma / 10);
+    build_frame([
+        CommmandType::StartConstantVoltageCharge as u8,
+        current_h,
+        current_l,
+        cutoff_h,
+        cutoff_l,
+        cutoff_current_h,
+        cutoff_current_l,
     ])
 }

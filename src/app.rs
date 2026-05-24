@@ -24,10 +24,13 @@ pub struct MainApp {
     current_device_mode: device::DeviceMode,
     #[serde(skip)]
     mode_on: bool,
-    current: f32,
-    voltage: f32,
-    watts: u16,
-    time: u16,
+    discharge_current: f32,
+    discharge_cutoff_voltage: f32,
+    discharge_watts: u16,
+    discharge_time: u16,
+    charge_current: f32,
+    charge_voltage: f32,
+    charge_cutoff_current: f32,
     #[serde(skip)]
     frames: Vec<VecDeque<u8>>,
 }
@@ -43,10 +46,13 @@ impl Default for MainApp {
             status: ConnectionStatus::Disconnected,
             current_device_mode: device::DeviceMode::DischargeConstantCurrent,
             mode_on: false,
-            current: 0.0,
-            voltage: 0.0,
-            watts: 0,
-            time: 0,
+            charge_current: 0.0,
+            charge_cutoff_current: 0.0,
+            charge_voltage: 0.0,
+            discharge_current: 0.0,
+            discharge_cutoff_voltage: 0.0,
+            discharge_watts: 0,
+            discharge_time: 0,
             frames: Vec::new(),
         }
     }
@@ -154,16 +160,16 @@ impl MainApp {
                 ui.label("Discharge Current:");
                 ui.add(
                     egui::Slider::new(
-                        &mut self.current,
-                        device::MIN_CURRENT_MA as f32 / 1000.0
-                            ..=device::MAX_CURRENT_MA as f32 / 1000.0,
+                        &mut self.discharge_current,
+                        device::MIN_DISCHARGE_CURRENT_MA as f32 / 1000.0
+                            ..=device::MAX_DISCHARGE_CURRENT_MA as f32 / 1000.0,
                     )
                     .suffix(" A"),
                 );
                 ui.label("Cutoff Voltage:");
                 ui.add(
                     egui::Slider::new(
-                        &mut self.voltage,
+                        &mut self.discharge_cutoff_voltage,
                         device::MIN_VOLTAGE_MV as f32 / 1000.0
                             ..=device::MAX_VOLTAGE_MV as f32 / 1000.0,
                     )
@@ -172,7 +178,7 @@ impl MainApp {
                 ui.label("Cutoff Time:");
                 ui.add(
                     egui::Slider::new(
-                        &mut self.time,
+                        &mut self.discharge_time,
                         device::MIN_CUTOFF_TIME_MIN..=device::MAX_CUTOFF_TIME_MIN,
                     )
                     .suffix(" min")
@@ -189,9 +195,9 @@ impl MainApp {
                     if ui.button("Start").clicked() {
                         self.cmd_tx
                             .unbounded_send(DeviceCommand::StartConstantCurrentDischarge(
-                                (self.current * 1000.0) as u16,
-                                (self.voltage * 1000.0) as u16,
-                                self.time,
+                                (self.discharge_current * 1000.0) as u16,
+                                (self.discharge_cutoff_voltage * 1000.0) as u16,
+                                self.discharge_time,
                             ))
                             .ok();
                         self.mode_on = true;
@@ -210,7 +216,7 @@ impl MainApp {
                 ui.label("Discharge Power:");
                 ui.add(
                     egui::Slider::new(
-                        &mut self.watts,
+                        &mut self.discharge_watts,
                         device::MIN_POWER_W..=device::MAX_POWER_W,
                     )
                     .suffix(" W"),
@@ -218,7 +224,7 @@ impl MainApp {
                 ui.label("Cutoff Voltage:");
                 ui.add(
                     egui::Slider::new(
-                        &mut self.voltage,
+                        &mut self.discharge_cutoff_voltage,
                         device::MIN_VOLTAGE_MV as f32 / 1000.0
                             ..=device::MAX_VOLTAGE_MV as f32 / 1000.0,
                     )
@@ -227,7 +233,7 @@ impl MainApp {
                 ui.label("Cutoff Time:");
                 ui.add(
                     egui::Slider::new(
-                        &mut self.time,
+                        &mut self.discharge_time,
                         device::MIN_CUTOFF_TIME_MIN..=device::MAX_CUTOFF_TIME_MIN,
                     )
                     .suffix(" min")
@@ -244,9 +250,9 @@ impl MainApp {
                     if ui.button("Start").clicked() {
                         self.cmd_tx
                             .unbounded_send(DeviceCommand::StartConstantPowerDischarge(
-                                self.watts,
-                                (self.voltage * 1000.0) as u16,
-                                self.time,
+                                self.discharge_watts,
+                                (self.discharge_cutoff_voltage * 1000.0) as u16,
+                                self.discharge_time,
                             ))
                             .ok();
                         self.mode_on = true;
@@ -257,7 +263,52 @@ impl MainApp {
                 }
             }
             device::DeviceMode::ChargeConstantVoltage => {
-                ui.label("TODO");
+                ui.label("Charge Current:");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.charge_current,
+                        device::MIN_CHARGE_CURRENT_MA as f32 / 1000.0
+                            ..=device::MAX_CHARGE_CURRENT_MA as f32 / 1000.0,
+                    )
+                    .suffix(" A"),
+                );
+                ui.label("Charge Voltage:");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.charge_voltage,
+                        device::MIN_VOLTAGE_MV as f32 / 1000.0
+                            ..=device::MAX_VOLTAGE_MV as f32 / 1000.0,
+                    )
+                    .suffix(" V"),
+                );
+                ui.label("Cutoff Current:");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.charge_cutoff_current,
+                        device::MIN_CHARGE_CUTOFF_CURRENT_MA as f32 / 1000.0
+                            ..=device::MAX_CHARGE_CUTOFF_CURRENT_MA as f32 / 1000.0,
+                    )
+                    .suffix(" A"),
+                );
+                if self.mode_on {
+                    ui.colored_label(egui::Color32::GREEN, "ON");
+                    if ui.button("Stop").clicked() {
+                        self.cmd_tx.unbounded_send(DeviceCommand::Stop).ok();
+                        self.mode_on = false;
+                    }
+                } else {
+                    ui.colored_label(egui::Color32::RED, "OFF");
+                    if ui.button("Start").clicked() {
+                        self.cmd_tx
+                            .unbounded_send(DeviceCommand::StartConstantVoltageCharge(
+                                (self.charge_current * 1000.0) as u16,
+                                (self.charge_voltage * 1000.0) as u16,
+                                (self.charge_cutoff_current * 1000.0) as u16,
+                            ))
+                            .ok();
+                        self.mode_on = true;
+                    }
+                }
             }
         }
     }

@@ -138,6 +138,13 @@ async fn device_task(
                     }
                 }
             }
+            Some(DeviceCommand::StartConstantVoltageCharge(current, cutoff_mv, cutoff_current)) => {
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
+                    if let Err(e) = start_constant_voltage_charge(device, ep, current, cutoff_mv, cutoff_current).await {
+                        log::error!("Failed to start constant voltage charge mode: {e:?}");
+                    }
+                }
+            }
             Some(DeviceCommand::Continue) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
                     if let Err(e) = continue_command(device, ep).await {
@@ -348,6 +355,17 @@ async fn start_constant_power_discharge(device: &web_sys::UsbDevice, out_endpoin
     JsFuture::from(promise)
         .await
         .map_err(|e| format!("Start constant power discharge command failed: {e:?}"))?;
+    Ok(())
+}
+
+async fn start_constant_voltage_charge(device: &web_sys::UsbDevice, out_endpoint_num: u8, current_ma: u16, cutoff_mv: u16, cutoff_current_ma: u16) -> Result<(), JsValue> {
+    let mut command = device::start_constant_voltage_charge_command(current_ma, cutoff_mv, cutoff_current_ma);
+    let promise = device
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
+    JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("Start constant voltage charge command failed: {e:?}"))?;
     Ok(())
 }
 
