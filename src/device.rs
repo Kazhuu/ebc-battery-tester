@@ -52,9 +52,12 @@ pub enum DeviceCommand {
     Connect(usize),
     Disconnect,
     Stop,
+    Continue,
     // Start constant current discharge mode, with current in mA, cutoff voltage
     // in mV, and cutoff time in minutes. If cutoff time is 0, means indefinite.
     StartConstantCurrentDischarge(u16, u16, u16),
+    StartConstantPowerDischarge(u16, u16, u16),
+    StopConstantCurrentDischarge,
 }
 
 #[derive(Debug)]
@@ -74,6 +77,10 @@ enum CommmandType {
     Disconnect = 0x06,
     Stop = 0x02,
     StartConstantCurrentDischarge = 0x01,
+    StartConstantPowerDischarge = 0x11,
+    // TODO: This seems to trigger discharge constant power???
+    Continue = 0x18,
+    StopConstantCurrentDischarge = 0x08,
 }
 
 // Encoding to prevent bytes > 240 in the byte stream, allowing 0xfa and 0xf8
@@ -104,6 +111,8 @@ fn build_frame(payload: [u8; 7]) -> [u8; 10] {
 
 pub const MIN_CURRENT_MA: u16 = 10;
 pub const MAX_CURRENT_MA: u16 = 20000;
+pub const MIN_POWER_W: u16 = 1;
+pub const MAX_POWER_W: u16 = 999;
 pub const MIN_VOLTAGE_MV: u16 = 10;
 pub const MAX_VOLTAGE_MV: u16 = 30000;
 pub const MIN_CUTOFF_TIME_MIN: u16 = 0;
@@ -122,6 +131,16 @@ pub fn disconnect_command() -> [u8; 10] {
 // Stop ongoing discharge or charge mode.
 pub fn stop_command() -> [u8; 10] {
     build_frame([CommmandType::Stop as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+}
+
+// TODO: Does not work yet. Seems to trigger discharge constant power???
+pub fn continue_command() -> [u8; 10] {
+    build_frame([CommmandType::Continue as u8, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00])
+}
+
+// TODO: Does not work yet.
+pub fn stop_constant_current_discharge_command() -> [u8; 10] {
+    build_frame([CommmandType::StopConstantCurrentDischarge as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
 }
 
 // Start constant current discharge mode with given discharge current in mA,
@@ -148,6 +167,30 @@ pub fn start_constant_current_discharge_command(current_ma: u16, cutoff_mv: u16,
         CommmandType::StartConstantCurrentDischarge as u8,
         current_h,
         current_l,
+        cutoff_h,
+        cutoff_l,
+        time_h,
+        time_l,
+    ])
+}
+
+pub fn start_constant_power_discharge_command(power_w: u16, cutoff_mv: u16, cutoff_time_min: u16) -> [u8; 10] {
+    if power_w < MIN_POWER_W || power_w > MAX_POWER_W {
+        panic!("Watts must be between {}W and {}W", MIN_POWER_W, MAX_POWER_W);
+    }
+    if cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV {
+        panic!("Cutoff voltage must be between {}mV and {}mV", MIN_VOLTAGE_MV, MAX_VOLTAGE_MV);
+    }
+    if cutoff_time_min < MIN_CUTOFF_TIME_MIN || cutoff_time_min > MAX_CUTOFF_TIME_MIN {
+        panic!("Cutoff time must be between {} and {} minutes", MIN_CUTOFF_TIME_MIN, MAX_CUTOFF_TIME_MIN);
+    }
+    let (power_h, power_l) = encode_base240(power_w);
+    let (cutoff_h, cutoff_l) = encode_base240(cutoff_mv / 10);
+    let (time_h, time_l) = encode_base240(cutoff_time_min);
+    build_frame([
+        CommmandType::StartConstantPowerDischarge as u8,
+        power_h,
+        power_l,
         cutoff_h,
         cutoff_l,
         time_h,

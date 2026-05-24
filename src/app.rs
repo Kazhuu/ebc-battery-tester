@@ -26,6 +26,7 @@ pub struct MainApp {
     mode_on: bool,
     current: f32,
     voltage: f32,
+    watts: u16,
     time: u16,
     #[serde(skip)]
     frames: Vec<VecDeque<u8>>,
@@ -44,6 +45,7 @@ impl Default for MainApp {
             mode_on: false,
             current: 0.0,
             voltage: 0.0,
+            watts: 0,
             time: 0,
             frames: Vec::new(),
         }
@@ -176,35 +178,88 @@ impl MainApp {
                     .suffix(" min")
                     .text("Indefinite if 0"),
                 );
+                if self.mode_on {
+                    ui.colored_label(egui::Color32::GREEN, "ON");
+                    if ui.button("Stop").clicked() {
+                        self.cmd_tx.unbounded_send(DeviceCommand::Stop).ok();
+                        self.mode_on = false;
+                    }
+                } else {
+                    ui.colored_label(egui::Color32::RED, "OFF");
+                    if ui.button("Start").clicked() {
+                        self.cmd_tx
+                            .unbounded_send(DeviceCommand::StartConstantCurrentDischarge(
+                                (self.current * 1000.0) as u16,
+                                (self.voltage * 1000.0) as u16,
+                                self.time,
+                            ))
+                            .ok();
+                        self.mode_on = true;
+                    }
+                }
+                if ui.button("Continue").clicked() {
+                    self.cmd_tx.unbounded_send(DeviceCommand::Continue).ok();
+                }
+                if ui.button("Stop Discharge").clicked() {
+                    self.cmd_tx
+                        .unbounded_send(DeviceCommand::StopConstantCurrentDischarge)
+                        .ok();
+                }
             }
             device::DeviceMode::DischargeConstantPower => {
-                ui.label("TODO");
+                ui.label("Discharge Power:");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.watts,
+                        device::MIN_POWER_W..=device::MAX_POWER_W,
+                    )
+                    .suffix(" W"),
+                );
+                ui.label("Cutoff Voltage:");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.voltage,
+                        device::MIN_VOLTAGE_MV as f32 / 1000.0
+                            ..=device::MAX_VOLTAGE_MV as f32 / 1000.0,
+                    )
+                    .suffix(" V"),
+                );
+                ui.label("Cutoff Time:");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.time,
+                        device::MIN_CUTOFF_TIME_MIN..=device::MAX_CUTOFF_TIME_MIN,
+                    )
+                    .suffix(" min")
+                    .text("Indefinite if 0"),
+                );
+                if self.mode_on {
+                    ui.colored_label(egui::Color32::GREEN, "ON");
+                    if ui.button("Stop").clicked() {
+                        self.cmd_tx.unbounded_send(DeviceCommand::Stop).ok();
+                        self.mode_on = false;
+                    }
+                } else {
+                    ui.colored_label(egui::Color32::RED, "OFF");
+                    if ui.button("Start").clicked() {
+                        self.cmd_tx
+                            .unbounded_send(DeviceCommand::StartConstantPowerDischarge(
+                                self.watts,
+                                (self.voltage * 1000.0) as u16,
+                                self.time,
+                            ))
+                            .ok();
+                        self.mode_on = true;
+                    }
+                }
+                if ui.button("Continue").clicked() {
+                    self.cmd_tx.unbounded_send(DeviceCommand::Continue).ok();
+                }
             }
             device::DeviceMode::ChargeConstantVoltage => {
                 ui.label("TODO");
             }
         }
-        ui.horizontal(|ui: &mut egui::Ui| {
-            if self.mode_on {
-                ui.colored_label(egui::Color32::GREEN, "ON");
-                if ui.button("Stop").clicked() {
-                    self.cmd_tx.unbounded_send(DeviceCommand::Stop).ok();
-                    self.mode_on = false;
-                }
-            } else {
-                ui.colored_label(egui::Color32::RED, "OFF");
-                if ui.button("Start").clicked() {
-                    self.cmd_tx
-                        .unbounded_send(DeviceCommand::StartConstantCurrentDischarge(
-                            (self.current * 1000.0) as u16,
-                            (self.voltage * 1000.0) as u16,
-                            self.time,
-                        ))
-                        .ok();
-                    self.mode_on = true;
-                }
-            }
-        });
     }
 }
 

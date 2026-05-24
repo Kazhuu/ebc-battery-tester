@@ -123,12 +123,32 @@ async fn device_task(
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
                     let _ = stop(device, ep).await;
                 }
-                return;
             }
             Some(DeviceCommand::StartConstantCurrentDischarge(current, cutoff_mv, cutoff_time)) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
                     if let Err(e) = start_constant_current_discharge(device, ep, current, cutoff_mv, cutoff_time).await {
                         log::error!("Failed to start constant current discharge mode: {e:?}");
+                    }
+                }
+            }
+            Some(DeviceCommand::StartConstantPowerDischarge(power, cutoff_mv, cutoff_time)) => {
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
+                    if let Err(e) = start_constant_power_discharge(device, ep, power, cutoff_mv, cutoff_time).await {
+                        log::error!("Failed to start constant power discharge mode: {e:?}");
+                    }
+                }
+            }
+            Some(DeviceCommand::Continue) => {
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
+                    if let Err(e) = continue_command(device, ep).await {
+                        log::error!("Failed to send continue command: {e:?}");
+                    }
+                }
+            }
+            Some(DeviceCommand::StopConstantCurrentDischarge) => {
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
+                    if let Err(e) = stop_constant_current_discharge(device, ep).await {
+                        log::error!("Failed to send stop constant current discharge command: {e:?}");
                     }
                 }
             }
@@ -212,6 +232,7 @@ async fn ch340_configure(device: &web_sys::UsbDevice) -> Result<(), JsValue> {
 }
 
 async fn connect(device_index: usize) -> Result<UsbState, String> {
+    log::info!("Connecting to device at index {device_index}...");
     let window = web_sys::window().ok_or("No window context")?;
     let usb = window.navigator().usb();
 
@@ -285,6 +306,7 @@ async fn connect(device_index: usize) -> Result<UsbState, String> {
 }
 
 async fn disconnect(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
+    log::info!("Disconnecting from device...");
     let mut command = device::disconnect_command();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
@@ -315,5 +337,38 @@ async fn start_constant_current_discharge(device: &web_sys::UsbDevice, out_endpo
     JsFuture::from(promise)
         .await
         .map_err(|e| format!("Start constant current discharge command failed: {e:?}"))?;
+    Ok(())
+}
+
+async fn start_constant_power_discharge(device: &web_sys::UsbDevice, out_endpoint_num: u8, power_w: u16, cutoff_mv: u16, cutoff_time_min: u16) -> Result<(), JsValue> {
+    let mut command = device::start_constant_power_discharge_command(power_w, cutoff_mv, cutoff_time_min);
+    let promise = device
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
+    JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("Start constant power discharge command failed: {e:?}"))?;
+    Ok(())
+}
+
+async fn continue_command(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
+    let mut command = device::continue_command();
+    let promise = device
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
+    JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("Continue command failed: {e:?}"))?;
+    Ok(())
+}
+
+async fn stop_constant_current_discharge(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
+    let mut command = device::stop_constant_current_discharge_command();
+    let promise = device
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
+    JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("Stop constant current discharge command failed: {e:?}"))?;
     Ok(())
 }
