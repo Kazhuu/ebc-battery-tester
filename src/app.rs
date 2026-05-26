@@ -332,7 +332,7 @@ impl eframe::App for MainApp {
                     self.available_devices = devices;
                 }
                 DeviceEvent::Frame(frame) => {
-                    log::info!("Received frame: {:?}", frame);
+                    log::info!("{:?}", DeviceEvent::Frame(frame.clone()));
                     self.frames.push(VecDeque::from(frame));
                 }
             }

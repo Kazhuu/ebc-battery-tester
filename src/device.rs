@@ -66,7 +66,6 @@ pub enum DeviceCommand {
     StopConstantCurrentDischarge,
 }
 
-#[derive(Debug)]
 pub enum DeviceEvent {
     StatusChanged(ConnectionStatus),
     // Vec of available devices.
@@ -74,9 +73,26 @@ pub enum DeviceEvent {
     Frame(Vec<u8>),
 }
 
+impl std::fmt::Debug for DeviceEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StatusChanged(s) => f.debug_tuple("StatusChanged").field(s).finish(),
+            Self::DevicesUpdated(d) => f.debug_tuple("DevicesUpdated").field(d).finish(),
+            Self::Frame(bytes) => {
+                write!(f, "Frame(")?;
+                for (i, b) in bytes.iter().enumerate() {
+                    if i > 0 { write!(f, " ")?; }
+                    write!(f, "{b:02x}")?;
+                }
+                write!(f, ")")
+            }
+        }
+    }
+}
+
 // Start of Frame (SOF) and End of Frame (EOF) bytes.
-const START_BYTE: u8 = 0xfa;
-const END_BYTE: u8 = 0xf8;
+pub const START_BYTE: u8 = 0xfa;
+pub const END_BYTE: u8 = 0xf8;
 
 enum CommmandType {
     Connect = 0x05,

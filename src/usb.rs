@@ -1,7 +1,7 @@
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
-use crate::device::{ConnectionStatus, DeviceCommand, DeviceEvent, UsbDeviceInfo};
+use crate::device::{ConnectionStatus, DeviceCommand, DeviceEvent, UsbDeviceInfo, START_BYTE, END_BYTE};
 use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
 use futures::channel::oneshot;
 use futures::StreamExt as _;
@@ -171,18 +171,35 @@ async fn reading_task(
     mut stop_reading_rx: oneshot::Receiver<()>,
     ctx: egui::Context,
 ) {
+    let mut buf: Vec<u8> = Vec::new();
     loop {
-        let transfer = JsFuture::from(device.transfer_in(in_endpoint, 30)).fuse();
+        let transfer = JsFuture::from(device.transfer_in(in_endpoint, 64)).fuse();
         futures::pin_mut!(transfer);
         futures::select! {
             result = transfer => match result {
                 Ok(value) => {
                     let result: web_sys::UsbInTransferResult = value.unchecked_into();
                     if let Some(data) = result.data() {
-                        let bytes = js_sys::Uint8Array::new(&data.buffer()).to_vec();
-                        if !bytes.is_empty() {
-                            event_tx.unbounded_send(DeviceEvent::Frame(bytes)).ok();
-                            ctx.request_repaint();
+                        buf.extend_from_slice(&js_sys::Uint8Array::new(&data.buffer()).to_vec());
+                        loop {
+                            // Discard bytes before the start delimiter.
+                            if let Some(start) = buf.iter().position(|&b| b == START_BYTE) {
+                                if start > 0 {
+                                    buf.drain(..start);
+                                }
+                            } else {
+                                buf.clear();
+                                break;
+                            }
+                            // Find the end delimiter after the start.
+                            if let Some(end) = buf[1..].iter().position(|&b| b == END_BYTE) {
+                                let frame_end = end + 2; // +1 for slice offset, +1 for inclusive
+                                let frame = buf.drain(..frame_end).collect::<Vec<u8>>();
+                                event_tx.unbounded_send(DeviceEvent::Frame(frame)).ok();
+                                ctx.request_repaint();
+                            } else {
+                                break;
+                            }
                         }
                     }
                 }
