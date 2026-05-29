@@ -32,7 +32,7 @@ pub struct MainApp {
     charge_voltage: f32,
     charge_cutoff_current: f32,
     #[serde(skip)]
-    frames: Vec<VecDeque<u8>>,
+    frames: VecDeque<device::InboundFrame>,
 }
 
 impl Default for MainApp {
@@ -53,7 +53,7 @@ impl Default for MainApp {
             discharge_cutoff_voltage: 0.0,
             discharge_watts: 0,
             discharge_time: 0,
-            frames: Vec::new(),
+            frames: VecDeque::new(),
         }
     }
 }
@@ -333,7 +333,7 @@ impl eframe::App for MainApp {
                 }
                 DeviceEvent::Frame(frame) => {
                     log::info!("{:?}", DeviceEvent::Frame(frame.clone()));
-                    self.frames.push(VecDeque::from(frame));
+                    self.frames.push_back(frame);
                 }
             }
         }

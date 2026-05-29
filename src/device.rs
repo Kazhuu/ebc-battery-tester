@@ -1,3 +1,5 @@
+pub const MAX_FRAME_SIZE: usize = 19;
+
 // Start of Frame (SOF) and End of Frame (EOF) bytes.
 pub const START_BYTE: u8 = 0xfa;
 pub const END_BYTE: u8 = 0xf8;
@@ -28,7 +30,11 @@ pub struct UsbDeviceInfo {
 impl std::fmt::Display for UsbDeviceInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.product_name.is_empty() {
-            write!(f, "Unknown ({:04x}:{:04x})", self.vendor_id, self.product_id)
+            write!(
+                f,
+                "Unknown ({:04x}:{:04x})",
+                self.vendor_id, self.product_id
+            )
         } else {
             write!(
                 f,
@@ -108,39 +114,25 @@ impl std::convert::From<OutboundFrame> for [u8; 10] {
             OutboundFrame::Disconnect => disconnect_command(),
             OutboundFrame::Stop => stop_command(),
             OutboundFrame::Continue => continue_command(),
-            OutboundFrame::StartConstantCurrentDischarge(current_ma, cutoff_mv, cutoff_time_min) => {
-                start_constant_current_discharge_command(current_ma, cutoff_mv, cutoff_time_min)
-            }
+            OutboundFrame::StartConstantCurrentDischarge(
+                current_ma,
+                cutoff_mv,
+                cutoff_time_min,
+            ) => start_constant_current_discharge_command(current_ma, cutoff_mv, cutoff_time_min),
             OutboundFrame::StartConstantPowerDischarge(power_w, cutoff_mv, cutoff_time_min) => {
                 start_constant_power_discharge_command(power_w, cutoff_mv, cutoff_time_min)
             }
-            OutboundFrame::StartConstantVoltageCharge(current_ma, charge_voltage_mv, cutoff_current_ma) => {
-                start_constant_voltage_charge_command(current_ma, charge_voltage_mv, cutoff_current_ma)
-            }
-            OutboundFrame::StopConstantCurrentDischarge => stop_constant_current_discharge_command(),
-        }
-    }
-}
-
-pub enum DeviceEvent {
-    StatusChanged(ConnectionStatus),
-    // Vec of available devices.
-    DevicesUpdated(Vec<UsbDeviceInfo>),
-    Frame(Vec<u8>),
-}
-
-impl std::fmt::Debug for DeviceEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::StatusChanged(s) => f.debug_tuple("StatusChanged").field(s).finish(),
-            Self::DevicesUpdated(d) => f.debug_tuple("DevicesUpdated").field(d).finish(),
-            Self::Frame(bytes) => {
-                write!(f, "Frame(")?;
-                for (i, b) in bytes.iter().enumerate() {
-                    if i > 0 { write!(f, " ")?; }
-                    write!(f, "{b:02x}")?;
-                }
-                write!(f, ")")
+            OutboundFrame::StartConstantVoltageCharge(
+                current_ma,
+                charge_voltage_mv,
+                cutoff_current_ma,
+            ) => start_constant_voltage_charge_command(
+                current_ma,
+                charge_voltage_mv,
+                cutoff_current_ma,
+            ),
+            OutboundFrame::StopConstantCurrentDischarge => {
+                stop_constant_current_discharge_command()
             }
         }
     }
@@ -156,6 +148,133 @@ enum CommmandType {
     // TODO: This seems to trigger discharge constant power???
     Continue = 0x18,
     StopConstantCurrentDischarge = 0x08,
+}
+
+enum StatusReportType {
+    IdleStatusReport = 0x02,
+    IdleFirmwareReport = 0x66,
+}
+
+#[derive(Clone, Debug)]
+pub struct IdleReportStruct {
+    current_ma: u16,
+    voltage_mv: u16,
+    charge_count: u16,
+    energy_wh: u16,
+    param1: u16,
+    param2: u16,
+    param3: u16,
+    device_type: u8,
+}
+
+#[derive(Clone, Debug)]
+pub struct IdleFirmwareReportStruct {
+    current_ma: u16,
+    voltage_mv: u16,
+    charge_count: u16,
+    energy_wh: u16,
+    firmware_version: u16,
+    unknown1: u16,
+    unknown2: u16,
+    device_type: u8,
+}
+
+#[derive(Clone, Debug)]
+pub enum InboundFrame {
+    IdleReport(IdleReportStruct),
+    IdleFirmwareReport(IdleFirmwareReportStruct),
+}
+
+impl TryFrom<&[u8]> for InboundFrame {
+    type Error = String;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.len() > MAX_FRAME_SIZE {
+            return Err(format!("Frame too long, got {}", value.len()));
+        }
+        if value[0] != START_BYTE {
+            return Err(format!(
+                "Invalid start byte: expected {START_BYTE:#04x}, got {:#04x}",
+                value[0]
+            ));
+        }
+        if value[value.len() - 1] != END_BYTE {
+            return Err(format!(
+                "Invalid end byte: expected {END_BYTE:#04x}, got {:#04x}",
+                value[value.len() - 1]
+            ));
+        }
+        let payload = &value[1..value.len() - 2];
+        let checksum = value[value.len() - 2];
+        if xor_checksum(payload) != checksum {
+            return Err(format!(
+                "Invalid checksum: expected {:#04x}, got {:#04x}",
+                xor_checksum(payload),
+                checksum
+            ));
+        }
+        let command_byte = payload[0];
+        match command_byte {
+            x if x == StatusReportType::IdleFirmwareReport as u8 => {
+                if value.len() != MAX_FRAME_SIZE {
+                    return Err(format!(
+                        "Invalid frame length for IdleFirmwareReport: expected {}, got {}",
+                        MAX_FRAME_SIZE,
+                        value.len()
+                    ));
+                }
+                return Ok(InboundFrame::IdleFirmwareReport(IdleFirmwareReportStruct {
+                    current_ma: decode_base240(payload[1], payload[2]),
+                    voltage_mv: decode_base240(payload[3], payload[4]),
+                    charge_count: decode_base240(payload[5], payload[6]),
+                    energy_wh: decode_base240(payload[7], payload[8]),
+                    firmware_version: decode_base240(payload[9], payload[10]),
+                    unknown1: decode_base240(payload[11], payload[12]),
+                    unknown2: decode_base240(payload[13], payload[14]),
+                    device_type: payload[15],
+                }));
+            }
+            x if x == StatusReportType::IdleStatusReport as u8 => {
+                if value.len() != MAX_FRAME_SIZE {
+                    return Err(format!(
+                        "Invalid frame length for IdleStatusReport: expected {}, got {}",
+                        MAX_FRAME_SIZE,
+                        value.len()
+                    ));
+                }
+                return Ok(InboundFrame::IdleReport(IdleReportStruct {
+                    current_ma: decode_base240(payload[1], payload[2]),
+                    voltage_mv: decode_base240(payload[3], payload[4]),
+                    charge_count: decode_base240(payload[5], payload[6]),
+                    energy_wh: decode_base240(payload[7], payload[8]),
+                    param1: decode_base240(payload[9], payload[10]),
+                    param2: decode_base240(payload[11], payload[12]),
+                    param3: decode_base240(payload[13], payload[14]),
+                    device_type: payload[15],
+                }));
+            }
+            _ => return Err(format!("Unknown command byte: {command_byte:#04x}")),
+        }
+    }
+}
+
+pub enum DeviceEvent {
+    StatusChanged(ConnectionStatus),
+    // Vec of available devices.
+    DevicesUpdated(Vec<UsbDeviceInfo>),
+    Frame(InboundFrame),
+}
+
+impl std::fmt::Debug for DeviceEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StatusChanged(s) => f.debug_tuple("StatusChanged").field(s).finish(),
+            Self::DevicesUpdated(d) => f.debug_tuple("DevicesUpdated").field(d).finish(),
+            Self::Frame(frame) => {
+                write!(f, "Frame({:?})", frame)
+            }
+        }
+    }
 }
 
 // Encoding to prevent bytes > 240 in the byte stream, allowing 0xfa and 0xf8
@@ -185,11 +304,27 @@ fn build_frame(payload: [u8; 7]) -> [u8; 10] {
 }
 
 fn connect_command() -> [u8; 10] {
-    build_frame([CommmandType::Connect as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+    build_frame([
+        CommmandType::Connect as u8,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+    ])
 }
 
 fn disconnect_command() -> [u8; 10] {
-    build_frame([CommmandType::Disconnect as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+    build_frame([
+        CommmandType::Disconnect as u8,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+    ])
 }
 
 fn stop_command() -> [u8; 10] {
@@ -197,22 +332,51 @@ fn stop_command() -> [u8; 10] {
 }
 
 fn continue_command() -> [u8; 10] {
-    build_frame([CommmandType::Continue as u8, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00])
+    build_frame([
+        CommmandType::Continue as u8,
+        0x00,
+        0x03,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+    ])
 }
 
 fn stop_constant_current_discharge_command() -> [u8; 10] {
-    build_frame([CommmandType::StopConstantCurrentDischarge as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+    build_frame([
+        CommmandType::StopConstantCurrentDischarge as u8,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+    ])
 }
 
-fn start_constant_current_discharge_command(current_ma: u16, cutoff_mv: u16, cutoff_time_min: u16) -> [u8; 10] {
+fn start_constant_current_discharge_command(
+    current_ma: u16,
+    cutoff_mv: u16,
+    cutoff_time_min: u16,
+) -> [u8; 10] {
     if current_ma < MIN_DISCHARGE_CURRENT_MA || current_ma > MAX_DISCHARGE_CURRENT_MA {
-        panic!("Current must be between {}mA and {}mA", MIN_DISCHARGE_CURRENT_MA, MAX_DISCHARGE_CURRENT_MA);
+        panic!(
+            "Current must be between {}mA and {}mA",
+            MIN_DISCHARGE_CURRENT_MA, MAX_DISCHARGE_CURRENT_MA
+        );
     }
     if cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV {
-        panic!("Cutoff voltage must be between {}mV and {}mV", MIN_VOLTAGE_MV, MAX_VOLTAGE_MV);
+        panic!(
+            "Cutoff voltage must be between {}mV and {}mV",
+            MIN_VOLTAGE_MV, MAX_VOLTAGE_MV
+        );
     }
     if cutoff_time_min < MIN_CUTOFF_TIME_MIN || cutoff_time_min > MAX_CUTOFF_TIME_MIN {
-        panic!("Cutoff time must be between {} and {} minutes", MIN_CUTOFF_TIME_MIN, MAX_CUTOFF_TIME_MIN);
+        panic!(
+            "Cutoff time must be between {} and {} minutes",
+            MIN_CUTOFF_TIME_MIN, MAX_CUTOFF_TIME_MIN
+        );
     }
     let (current_h, current_l) = encode_base240(current_ma / 10);
     let (cutoff_h, cutoff_l) = encode_base240(cutoff_mv / 10);
@@ -228,15 +392,28 @@ fn start_constant_current_discharge_command(current_ma: u16, cutoff_mv: u16, cut
     ])
 }
 
-fn start_constant_power_discharge_command(power_w: u16, cutoff_mv: u16, cutoff_time_min: u16) -> [u8; 10] {
+fn start_constant_power_discharge_command(
+    power_w: u16,
+    cutoff_mv: u16,
+    cutoff_time_min: u16,
+) -> [u8; 10] {
     if power_w < MIN_POWER_W || power_w > MAX_POWER_W {
-        panic!("Watts must be between {}W and {}W", MIN_POWER_W, MAX_POWER_W);
+        panic!(
+            "Watts must be between {}W and {}W",
+            MIN_POWER_W, MAX_POWER_W
+        );
     }
     if cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV {
-        panic!("Cutoff voltage must be between {}mV and {}mV", MIN_VOLTAGE_MV, MAX_VOLTAGE_MV);
+        panic!(
+            "Cutoff voltage must be between {}mV and {}mV",
+            MIN_VOLTAGE_MV, MAX_VOLTAGE_MV
+        );
     }
     if cutoff_time_min < MIN_CUTOFF_TIME_MIN || cutoff_time_min > MAX_CUTOFF_TIME_MIN {
-        panic!("Cutoff time must be between {} and {} minutes", MIN_CUTOFF_TIME_MIN, MAX_CUTOFF_TIME_MIN);
+        panic!(
+            "Cutoff time must be between {} and {} minutes",
+            MIN_CUTOFF_TIME_MIN, MAX_CUTOFF_TIME_MIN
+        );
     }
     let (power_h, power_l) = encode_base240(power_w);
     let (cutoff_h, cutoff_l) = encode_base240(cutoff_mv / 10);
@@ -252,15 +429,30 @@ fn start_constant_power_discharge_command(power_w: u16, cutoff_mv: u16, cutoff_t
     ])
 }
 
-fn start_constant_voltage_charge_command(current_ma: u16, charge_voltage_mv: u16, cutoff_current_ma: u16) -> [u8; 10] {
+fn start_constant_voltage_charge_command(
+    current_ma: u16,
+    charge_voltage_mv: u16,
+    cutoff_current_ma: u16,
+) -> [u8; 10] {
     if current_ma < MIN_CHARGE_CURRENT_MA || current_ma > MAX_CHARGE_CURRENT_MA {
-        panic!("Current must be between {}mA and {}mA", MIN_CHARGE_CURRENT_MA, MAX_CHARGE_CURRENT_MA);
+        panic!(
+            "Current must be between {}mA and {}mA",
+            MIN_CHARGE_CURRENT_MA, MAX_CHARGE_CURRENT_MA
+        );
     }
     if charge_voltage_mv < MIN_VOLTAGE_MV || charge_voltage_mv > MAX_VOLTAGE_MV {
-        panic!("Charge voltage must be between {}mV and {}mV", MIN_VOLTAGE_MV, MAX_VOLTAGE_MV);
+        panic!(
+            "Charge voltage must be between {}mV and {}mV",
+            MIN_VOLTAGE_MV, MAX_VOLTAGE_MV
+        );
     }
-    if cutoff_current_ma < MIN_CHARGE_CUTOFF_CURRENT_MA || cutoff_current_ma > MAX_CHARGE_CUTOFF_CURRENT_MA {
-        panic!("Cutoff current must be between {}mA and {}mA", MIN_CHARGE_CUTOFF_CURRENT_MA, MAX_CHARGE_CUTOFF_CURRENT_MA);
+    if cutoff_current_ma < MIN_CHARGE_CUTOFF_CURRENT_MA
+        || cutoff_current_ma > MAX_CHARGE_CUTOFF_CURRENT_MA
+    {
+        panic!(
+            "Cutoff current must be between {}mA and {}mA",
+            MIN_CHARGE_CUTOFF_CURRENT_MA, MAX_CHARGE_CUTOFF_CURRENT_MA
+        );
     }
     let (current_h, current_l) = encode_base240(current_ma / 10);
     let (charge_voltage_h, charge_voltage_l) = encode_base240(charge_voltage_mv / 10);

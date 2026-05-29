@@ -6,6 +6,7 @@ use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
 use futures::channel::oneshot;
 use futures::StreamExt as _;
 use futures::FutureExt as _;
+use crate::device::InboundFrame;
 
 const VENDOR_ID: u16 = 0x1A86;
 
@@ -194,6 +195,13 @@ async fn reading_task(
                             if let Some(end) = buf[1..].iter().position(|&b| b == END_BYTE) {
                                 let frame_end = end + 2; // +1 for slice offset, +1 for inclusive
                                 let frame = buf.drain(..frame_end).collect::<Vec<u8>>();
+                                let frame = match InboundFrame::try_from(frame.as_slice()) {
+                                    Ok(f) => f,
+                                    Err(e) => {
+                                        log::warn!("Failed to parse frame: {e}");
+                                        continue;
+                                    }
+                                };
                                 event_tx.unbounded_send(DeviceEvent::Frame(frame)).ok();
                                 ctx.request_repaint();
                             } else {
@@ -239,7 +247,7 @@ async fn ch340_configure(device: &web_sys::UsbDevice) -> Result<(), JsValue> {
     };
 
     // The CH340 requires a specific sequence of control transfers to initialize the serial port.
-    send(0xA1, 0xC29C, 0xB2B9)?.await?; // serial init
+    send(0xA1, 0xC29C, 0xB2B9)?.await?;  // serial init
     send(0xA4, 0x00DF, 0x0000)?.await?;  // modem ctrl: DTR + RTS on
     send(0xA4, 0x009F, 0x0000)?.await?;  // modem ctrl: call mode
     send(0x9A, 0x2727, 0x0000)?.await?;  // reset control status
