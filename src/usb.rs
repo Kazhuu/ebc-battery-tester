@@ -1,12 +1,11 @@
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
-use crate::device::{ConnectionStatus, DeviceCommand, DeviceEvent, UsbDeviceInfo, START_BYTE, END_BYTE};
+use crate::device::{ConnectionStatus, OutboundFrame, DeviceEvent, UsbDeviceInfo, START_BYTE, END_BYTE};
 use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
 use futures::channel::oneshot;
 use futures::StreamExt as _;
 use futures::FutureExt as _;
-use crate::device;
 
 const VENDOR_ID: u16 = 0x1A86;
 
@@ -63,7 +62,7 @@ pub fn request_device(event_tx: UnboundedSender<DeviceEvent>) {
 
 pub fn spawn_device_task(
     ctx: egui::Context,
-    cmd_rx: UnboundedReceiver<DeviceCommand>,
+    cmd_rx: UnboundedReceiver<OutboundFrame>,
     event_tx: UnboundedSender<DeviceEvent>,
 ) {
     wasm_bindgen_futures::spawn_local(device_task(ctx, cmd_rx, event_tx));
@@ -71,7 +70,7 @@ pub fn spawn_device_task(
 
 async fn device_task(
     ctx: egui::Context,
-    mut cmd_rx: UnboundedReceiver<DeviceCommand>,
+    mut cmd_rx: UnboundedReceiver<OutboundFrame>,
     event_tx: UnboundedSender<DeviceEvent>,
 ) {
     let mut stop_reading_tx: Option<oneshot::Sender<()>> = None;
@@ -79,7 +78,7 @@ async fn device_task(
     let mut out_endpoint_num: Option<u8> = None;
     loop {
         match cmd_rx.next().await {
-            Some(DeviceCommand::Connect(idx)) => {
+            Some(OutboundFrame::Connect(idx)) => {
                 event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connecting)).ok();
                 ctx.request_repaint();
                 match connect(idx).await {
@@ -106,7 +105,7 @@ async fn device_task(
                     }
                 }
             }
-            Some(DeviceCommand::Disconnect) => {
+            Some(OutboundFrame::Disconnect) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
                     if let Some(stop_tx) = stop_reading_tx.take() {
                         let _ = stop_tx.send(());
@@ -119,40 +118,40 @@ async fn device_task(
                 event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Disconnected)).ok();
                 ctx.request_repaint();
             }
-            Some(DeviceCommand::Stop) => {
+            Some(OutboundFrame::Stop) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
                     let _ = stop(device, ep).await;
                 }
             }
-            Some(DeviceCommand::StartConstantCurrentDischarge(current, cutoff_mv, cutoff_time)) => {
+            Some(OutboundFrame::StartConstantCurrentDischarge(current, cutoff_mv, cutoff_time)) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
                     if let Err(e) = start_constant_current_discharge(device, ep, current, cutoff_mv, cutoff_time).await {
                         log::error!("Failed to start constant current discharge mode: {e:?}");
                     }
                 }
             }
-            Some(DeviceCommand::StartConstantPowerDischarge(power, cutoff_mv, cutoff_time)) => {
+            Some(OutboundFrame::StartConstantPowerDischarge(power, cutoff_mv, cutoff_time)) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
                     if let Err(e) = start_constant_power_discharge(device, ep, power, cutoff_mv, cutoff_time).await {
                         log::error!("Failed to start constant power discharge mode: {e:?}");
                     }
                 }
             }
-            Some(DeviceCommand::StartConstantVoltageCharge(current, cutoff_mv, cutoff_current)) => {
+            Some(OutboundFrame::StartConstantVoltageCharge(current, cutoff_mv, cutoff_current)) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
                     if let Err(e) = start_constant_voltage_charge(device, ep, current, cutoff_mv, cutoff_current).await {
                         log::error!("Failed to start constant voltage charge mode: {e:?}");
                     }
                 }
             }
-            Some(DeviceCommand::Continue) => {
+            Some(OutboundFrame::Continue) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
                     if let Err(e) = continue_command(device, ep).await {
                         log::error!("Failed to send continue command: {e:?}");
                     }
                 }
             }
-            Some(DeviceCommand::StopConstantCurrentDischarge) => {
+            Some(OutboundFrame::StopConstantCurrentDischarge) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
                     if let Err(e) = stop_constant_current_discharge(device, ep).await {
                         log::error!("Failed to send stop constant current discharge command: {e:?}");
@@ -314,9 +313,9 @@ async fn connect(device_index: usize) -> Result<UsbState, String> {
         .await
         .map_err(|e| format!("Failed to claim interface {interface_num}: {e:?}"))?;
 
-    let mut command = device::connect_command();
+    let mut bytes: [u8; 10] = OutboundFrame::Connect(device_index).into();
     let promise = device
-        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
     JsFuture::from(promise)
         .await
@@ -331,9 +330,9 @@ async fn connect(device_index: usize) -> Result<UsbState, String> {
 
 async fn disconnect(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
     log::info!("Disconnecting from device...");
-    let mut command = device::disconnect_command();
+    let mut bytes: [u8; 10] = OutboundFrame::Disconnect.into();
     let promise = device
-        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
     JsFuture::from(promise)
         .await
@@ -343,9 +342,9 @@ async fn disconnect(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result
 }
 
 async fn stop(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
-    let mut command = device::stop_command();
+    let mut bytes: [u8; 10] = OutboundFrame::Stop.into();
     let promise = device
-        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
     JsFuture::from(promise)
         .await
@@ -354,9 +353,9 @@ async fn stop(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), J
 }
 
 async fn start_constant_current_discharge(device: &web_sys::UsbDevice, out_endpoint_num: u8, current_ma: u16, cutoff_mv: u16, cutoff_time_min: u16) -> Result<(), JsValue> {
-    let mut command = device::start_constant_current_discharge_command(current_ma, cutoff_mv, cutoff_time_min);
+    let mut bytes: [u8; 10] = OutboundFrame::StartConstantCurrentDischarge(current_ma, cutoff_mv, cutoff_time_min).into();
     let promise = device
-        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
     JsFuture::from(promise)
         .await
@@ -365,9 +364,9 @@ async fn start_constant_current_discharge(device: &web_sys::UsbDevice, out_endpo
 }
 
 async fn start_constant_power_discharge(device: &web_sys::UsbDevice, out_endpoint_num: u8, power_w: u16, cutoff_mv: u16, cutoff_time_min: u16) -> Result<(), JsValue> {
-    let mut command = device::start_constant_power_discharge_command(power_w, cutoff_mv, cutoff_time_min);
+    let mut bytes: [u8; 10] = OutboundFrame::StartConstantPowerDischarge(power_w, cutoff_mv, cutoff_time_min).into();
     let promise = device
-        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
     JsFuture::from(promise)
         .await
@@ -376,9 +375,9 @@ async fn start_constant_power_discharge(device: &web_sys::UsbDevice, out_endpoin
 }
 
 async fn start_constant_voltage_charge(device: &web_sys::UsbDevice, out_endpoint_num: u8, current_ma: u16, cutoff_mv: u16, cutoff_current_ma: u16) -> Result<(), JsValue> {
-    let mut command = device::start_constant_voltage_charge_command(current_ma, cutoff_mv, cutoff_current_ma);
+    let mut bytes: [u8; 10] = OutboundFrame::StartConstantVoltageCharge(current_ma, cutoff_mv, cutoff_current_ma).into();
     let promise = device
-        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
     JsFuture::from(promise)
         .await
@@ -387,9 +386,9 @@ async fn start_constant_voltage_charge(device: &web_sys::UsbDevice, out_endpoint
 }
 
 async fn continue_command(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
-    let mut command = device::continue_command();
+    let mut bytes: [u8; 10] = OutboundFrame::Continue.into();
     let promise = device
-        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
     JsFuture::from(promise)
         .await
@@ -398,9 +397,9 @@ async fn continue_command(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> 
 }
 
 async fn stop_constant_current_discharge(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
-    let mut command = device::stop_constant_current_discharge_command();
+    let mut bytes: [u8; 10] = OutboundFrame::StopConstantCurrentDischarge.into();
     let promise = device
-        .transfer_out_with_u8_slice(out_endpoint_num, &mut command)
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
     JsFuture::from(promise)
         .await

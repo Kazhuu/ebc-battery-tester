@@ -1,4 +1,22 @@
+// Start of Frame (SOF) and End of Frame (EOF) bytes.
+pub const START_BYTE: u8 = 0xfa;
+pub const END_BYTE: u8 = 0xf8;
 
+pub const MIN_DISCHARGE_CURRENT_MA: u16 = 10;
+pub const MAX_DISCHARGE_CURRENT_MA: u16 = 20000;
+pub const MIN_CHARGE_CURRENT_MA: u16 = 10;
+pub const MAX_CHARGE_CURRENT_MA: u16 = 5000;
+pub const MIN_CHARGE_CUTOFF_CURRENT_MA: u16 = 10;
+pub const MAX_CHARGE_CUTOFF_CURRENT_MA: u16 = 9990;
+pub const MIN_POWER_W: u16 = 1;
+pub const MAX_POWER_W: u16 = 999;
+pub const MIN_VOLTAGE_MV: u16 = 10;
+pub const MAX_VOLTAGE_MV: u16 = 30000;
+pub const MIN_CUTOFF_TIME_MIN: u16 = 0;
+pub const MAX_CUTOFF_TIME_MIN: u16 = 999;
+// Max minutes to wait between charge and discharge cycle.
+pub const AUTO_MODE_TIME_MIN_MINS: u16 = 0;
+pub const AUTO_MODE_TIME_MAX_MINS: u16 = 10;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UsbDeviceInfo {
     pub product_name: String,
@@ -47,23 +65,61 @@ impl std::fmt::Display for DeviceMode {
 }
 
 #[derive(Debug)]
-pub enum DeviceCommand {
-    // The usize is the index of the device to connect to, as returned by enumerate_devices.
+pub enum OutboundFrame {
+    // Send connect command to the device. This will display '-PC-' on the LCD
+    // screen. The usize is the index of the device to connect to.
     Connect(usize),
+    // Send disconnect command to the device. After this '-PC-' disappears from
+    // LCD screen.
     Disconnect,
+    // Stop ongoing discharge or charge mode.
     Stop,
+    // TODO: Does not work yet. Seems to trigger discharge constant power???
     Continue,
-    // Start constant current discharge mode, with current in mA, cutoff voltage
-    // in mV, and cutoff time in minutes. If cutoff time is 0, means indefinite.
+    // Start constant current discharge mode with given discharge current in mA,
+    // cutoff voltage in mV, and cutoff time in minutes. If cutoff time is 0,
+    // means indefinite. The cutoff
+    // current voltage values are quantized to 10mA and 10mV. This is because
+    // the device only allows setting the value in steps of 10 minimum. Maximum
+    // current is 20A, maximum voltage is 30V, and maximum cutoff time is 999
+    // minutes. These are also same limits the device has.
     StartConstantCurrentDischarge(u16, u16, u16),
-    // Start constant power discharge mode, with power in W, cutoff voltage in mV,
-    // and cutoff time in minutes. If cutoff time is 0, means indefinite.
+    // Start constant power discharge mode with given power in W, cutoff voltage
+    // in mV, and cutoff time in minutes. If cutoff time is 0, means indefinite.
+    // The cutoff voltage value is quantized to 10mV. This is
+    // because the device only allows setting the value in steps of 10 minimum.
+    // Maximum power is 200W, maximum voltage is 30V, and maximum cutoff time is
+    // 999 minutes. These are also same limits the device has.
     StartConstantPowerDischarge(u16, u16, u16),
-    // Start constant voltage charge mode, with charge current in mA, charge
-    // voltage in mV and cutoff current in mA. The cutoff current is used to
-    // determine when to stop charging.
+    // Start constant voltage charge mode with given charge current in mA,
+    // charge voltage in mV and cutoff current in mA. The charge voltage and
+    // current values are quantized to 10mV and 10mA. This is because the device
+    // only allows setting the value in steps of 10 minimum. Maximum charge
+    // current is 5A, maximum voltage is 30V, and maximum cutoff current is
+    // 9990mA. These are also same limits the device has.
     StartConstantVoltageCharge(u16, u16, u16),
     StopConstantCurrentDischarge,
+}
+
+impl std::convert::From<OutboundFrame> for [u8; 10] {
+    fn from(frame: OutboundFrame) -> Self {
+        match frame {
+            OutboundFrame::Connect(_) => connect_command(),
+            OutboundFrame::Disconnect => disconnect_command(),
+            OutboundFrame::Stop => stop_command(),
+            OutboundFrame::Continue => continue_command(),
+            OutboundFrame::StartConstantCurrentDischarge(current_ma, cutoff_mv, cutoff_time_min) => {
+                start_constant_current_discharge_command(current_ma, cutoff_mv, cutoff_time_min)
+            }
+            OutboundFrame::StartConstantPowerDischarge(power_w, cutoff_mv, cutoff_time_min) => {
+                start_constant_power_discharge_command(power_w, cutoff_mv, cutoff_time_min)
+            }
+            OutboundFrame::StartConstantVoltageCharge(current_ma, charge_voltage_mv, cutoff_current_ma) => {
+                start_constant_voltage_charge_command(current_ma, charge_voltage_mv, cutoff_current_ma)
+            }
+            OutboundFrame::StopConstantCurrentDischarge => stop_constant_current_discharge_command(),
+        }
+    }
 }
 
 pub enum DeviceEvent {
@@ -89,10 +145,6 @@ impl std::fmt::Debug for DeviceEvent {
         }
     }
 }
-
-// Start of Frame (SOF) and End of Frame (EOF) bytes.
-pub const START_BYTE: u8 = 0xfa;
-pub const END_BYTE: u8 = 0xf8;
 
 enum CommmandType {
     Connect = 0x05,
@@ -132,55 +184,27 @@ fn build_frame(payload: [u8; 7]) -> [u8; 10] {
     frame
 }
 
-pub const MIN_DISCHARGE_CURRENT_MA: u16 = 10;
-pub const MAX_DISCHARGE_CURRENT_MA: u16 = 20000;
-pub const MIN_CHARGE_CURRENT_MA: u16 = 10;
-pub const MAX_CHARGE_CURRENT_MA: u16 = 5000;
-pub const MIN_CHARGE_CUTOFF_CURRENT_MA: u16 = 10;
-pub const MAX_CHARGE_CUTOFF_CURRENT_MA: u16 = 9990;
-pub const MIN_POWER_W: u16 = 1;
-pub const MAX_POWER_W: u16 = 999;
-pub const MIN_VOLTAGE_MV: u16 = 10;
-pub const MAX_VOLTAGE_MV: u16 = 30000;
-pub const MIN_CUTOFF_TIME_MIN: u16 = 0;
-pub const MAX_CUTOFF_TIME_MIN: u16 = 999;
-// Max minutes to wait between charge and discharge cycle.
-pub const AUTO_MODE_TIME_MIN_MINS: u16 = 0;
-pub const AUTO_MODE_TIME_MAX_MINS: u16 = 10;
-
-// Send connect command to the device. This will display '-PC-' on the LCD screen.
-pub fn connect_command() -> [u8; 10] {
+fn connect_command() -> [u8; 10] {
     build_frame([CommmandType::Connect as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
 }
 
-// Send disconnect command to the device. After this '-PC-' disappears from LCD screen.
-pub fn disconnect_command() -> [u8; 10] {
+fn disconnect_command() -> [u8; 10] {
     build_frame([CommmandType::Disconnect as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
 }
 
-// Stop ongoing discharge or charge mode.
-pub fn stop_command() -> [u8; 10] {
+fn stop_command() -> [u8; 10] {
     build_frame([CommmandType::Stop as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
 }
 
-// TODO: Does not work yet. Seems to trigger discharge constant power???
-pub fn continue_command() -> [u8; 10] {
+fn continue_command() -> [u8; 10] {
     build_frame([CommmandType::Continue as u8, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00])
 }
 
-// TODO: Does not work yet.
-pub fn stop_constant_current_discharge_command() -> [u8; 10] {
+fn stop_constant_current_discharge_command() -> [u8; 10] {
     build_frame([CommmandType::StopConstantCurrentDischarge as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
 }
 
-// Start constant current discharge mode with given discharge current in mA,
-// cutoff voltage in mV, and cutoff time in minutes. If cutoff time is 0, means
-// indefinite. The LCD screen will display 'DSC' mode. The cutoff current
-// voltage values are quantized to 10mA and 10mV. This is because the device
-// only allows setting the value in steps of 10 minimum. Maximum current is 20A,
-// maximum voltage is 30V, and maximum cutoff time is 999 minutes. These are
-// also same limits the device has.
-pub fn start_constant_current_discharge_command(current_ma: u16, cutoff_mv: u16, cutoff_time_min: u16) -> [u8; 10] {
+fn start_constant_current_discharge_command(current_ma: u16, cutoff_mv: u16, cutoff_time_min: u16) -> [u8; 10] {
     if current_ma < MIN_DISCHARGE_CURRENT_MA || current_ma > MAX_DISCHARGE_CURRENT_MA {
         panic!("Current must be between {}mA and {}mA", MIN_DISCHARGE_CURRENT_MA, MAX_DISCHARGE_CURRENT_MA);
     }
@@ -204,7 +228,7 @@ pub fn start_constant_current_discharge_command(current_ma: u16, cutoff_mv: u16,
     ])
 }
 
-pub fn start_constant_power_discharge_command(power_w: u16, cutoff_mv: u16, cutoff_time_min: u16) -> [u8; 10] {
+fn start_constant_power_discharge_command(power_w: u16, cutoff_mv: u16, cutoff_time_min: u16) -> [u8; 10] {
     if power_w < MIN_POWER_W || power_w > MAX_POWER_W {
         panic!("Watts must be between {}W and {}W", MIN_POWER_W, MAX_POWER_W);
     }
@@ -228,25 +252,25 @@ pub fn start_constant_power_discharge_command(power_w: u16, cutoff_mv: u16, cuto
     ])
 }
 
-pub fn start_constant_voltage_charge_command(current_ma: u16, cutoff_mv: u16, cutoff_current_ma: u16) -> [u8; 10] {
+fn start_constant_voltage_charge_command(current_ma: u16, charge_voltage_mv: u16, cutoff_current_ma: u16) -> [u8; 10] {
     if current_ma < MIN_CHARGE_CURRENT_MA || current_ma > MAX_CHARGE_CURRENT_MA {
         panic!("Current must be between {}mA and {}mA", MIN_CHARGE_CURRENT_MA, MAX_CHARGE_CURRENT_MA);
     }
-    if cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV {
-        panic!("Cutoff voltage must be between {}mV and {}mV", MIN_VOLTAGE_MV, MAX_VOLTAGE_MV);
+    if charge_voltage_mv < MIN_VOLTAGE_MV || charge_voltage_mv > MAX_VOLTAGE_MV {
+        panic!("Charge voltage must be between {}mV and {}mV", MIN_VOLTAGE_MV, MAX_VOLTAGE_MV);
     }
     if cutoff_current_ma < MIN_CHARGE_CUTOFF_CURRENT_MA || cutoff_current_ma > MAX_CHARGE_CUTOFF_CURRENT_MA {
         panic!("Cutoff current must be between {}mA and {}mA", MIN_CHARGE_CUTOFF_CURRENT_MA, MAX_CHARGE_CUTOFF_CURRENT_MA);
     }
     let (current_h, current_l) = encode_base240(current_ma / 10);
-    let (cutoff_h, cutoff_l) = encode_base240(cutoff_mv / 10);
+    let (charge_voltage_h, charge_voltage_l) = encode_base240(charge_voltage_mv / 10);
     let (cutoff_current_h, cutoff_current_l) = encode_base240(cutoff_current_ma / 10);
     build_frame([
         CommmandType::StartConstantVoltageCharge as u8,
         current_h,
         current_l,
-        cutoff_h,
-        cutoff_l,
+        charge_voltage_h,
+        charge_voltage_l,
         cutoff_current_h,
         cutoff_current_l,
     ])
