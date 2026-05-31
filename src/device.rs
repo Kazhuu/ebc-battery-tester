@@ -174,6 +174,7 @@ enum StatusReportType {
     ChargeConstantCurrentReport = 0x0C,
     IdleFirmwareReport = 0x66,
     ChargingFirmwareReport = 0x70,
+    DischargeConstantCurrentFirmwareReport = 0x64,
 }
 
 #[derive(Clone, Debug)]
@@ -230,6 +231,7 @@ pub enum InboundFrame {
     FirmwareReport(FirmwareReport),
     DischargeConstantCurrentReport(DischargeConstantCurrentReport),
     ChargeReport(ChargeReport),
+    DischargeConstantCurrentFirmwareReport(FirmwareReport),
 }
 
 impl TryFrom<&[u8]> for InboundFrame {
@@ -268,12 +270,13 @@ impl TryFrom<&[u8]> for InboundFrame {
         }
         let command_byte = payload[0];
         match command_byte {
-            // Charging and idle firmware reports have same frame structure. The
-            // difference is that when charge is idle. It will send idle
-            // firmware report. When charging, firmware report is sent for few
-            // seconds and not after that. starting charge.
+            // Charging, discharge and idle firmware reports have same frame
+            // structure. The difference is that when charge is idle. It will
+            // send idle firmware report. When charging, firmware report is sent
+            // for few seconds and not after that. starting charge.
             x if x == StatusReportType::IdleFirmwareReport as u8
-                || x == StatusReportType::ChargingFirmwareReport as u8 =>
+                || x == StatusReportType::ChargingFirmwareReport as u8
+                || x == StatusReportType::DischargeConstantCurrentFirmwareReport as u8 =>
             {
                 if value.len() != MAX_FRAME_SIZE {
                     return Err(format!(
