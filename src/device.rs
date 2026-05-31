@@ -19,6 +19,22 @@ pub const MAX_CUTOFF_TIME_MIN: u16 = 999;
 // Max minutes to wait between charge and discharge cycle.
 pub const AUTO_MODE_TIME_MIN_MINS: u16 = 0;
 pub const AUTO_MODE_TIME_MAX_MINS: u16 = 10;
+
+// ZKETECH EBC model codes sent from the device.
+enum DeviceType {
+    EBC_A05 = 0x05,
+    EBC_A10H = 0x06,
+    EBC_A20 = 0x09,
+}
+
+fn get_device_model_name(device_type_code: u8) -> String {
+    match device_type_code {
+        x if x == DeviceType::EBC_A05 as u8 => "EBC-A05".to_string(),
+        x if x == DeviceType::EBC_A10H as u8 => "EBC-A10H".to_string(),
+        x if x == DeviceType::EBC_A20 as u8 => "EBC-A20".to_string(),
+        _ => format!("Unknown ({:#04x})", device_type_code),
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UsbDeviceInfo {
     pub product_name: String,
@@ -157,26 +173,26 @@ enum StatusReportType {
 
 #[derive(Clone, Debug)]
 pub struct IdleReportStruct {
-    current_ma: u16,
-    voltage_mv: u16,
-    charge_count: u16,
-    energy_wh: u16,
-    param1: u16,
-    param2: u16,
-    param3: u16,
-    device_type: u8,
+    pub current_ma: u16,
+    pub voltage_mv: u16,
+    pub charge_count: u16,
+    pub energy_wh: u16,
+    pub param1: u16,
+    pub param2: u16,
+    pub param3: u16,
+    pub device_type: String,
 }
 
 #[derive(Clone, Debug)]
 pub struct IdleFirmwareReportStruct {
-    current_ma: u16,
-    voltage_mv: u16,
-    charge_count: u16,
-    energy_wh: u16,
-    firmware_version: u16,
-    unknown1: u16,
-    unknown2: u16,
-    device_type: u8,
+    pub current_ma: u16,
+    pub voltage_mv: u16,
+    pub charge_count: u16,
+    pub energy_wh: u16,
+    pub firmware_version: String,
+    pub unknown1: u16,
+    pub unknown2: u16,
+    pub device_type: String,
 }
 
 #[derive(Clone, Debug)]
@@ -223,15 +239,19 @@ impl TryFrom<&[u8]> for InboundFrame {
                         value.len()
                     ));
                 }
+                let version = decode_base240(payload[9], payload[10]);
+                let major = version / 100;
+                let minor = (version % 100) / 10;
+                let patch = version % 10;
                 return Ok(InboundFrame::IdleFirmwareReport(IdleFirmwareReportStruct {
                     current_ma: decode_base240(payload[1], payload[2]),
                     voltage_mv: decode_base240(payload[3], payload[4]),
                     charge_count: decode_base240(payload[5], payload[6]),
                     energy_wh: decode_base240(payload[7], payload[8]),
-                    firmware_version: decode_base240(payload[9], payload[10]),
+                    firmware_version: format!("{}.{}.{}", major, minor, patch),
                     unknown1: decode_base240(payload[11], payload[12]),
                     unknown2: decode_base240(payload[13], payload[14]),
-                    device_type: payload[15],
+                    device_type: get_device_model_name(payload[15]),
                 }));
             }
             x if x == StatusReportType::IdleStatusReport as u8 => {
@@ -250,7 +270,7 @@ impl TryFrom<&[u8]> for InboundFrame {
                     param1: decode_base240(payload[9], payload[10]),
                     param2: decode_base240(payload[11], payload[12]),
                     param3: decode_base240(payload[13], payload[14]),
-                    device_type: payload[15],
+                    device_type: get_device_model_name(payload[15]),
                 }));
             }
             _ => return Err(format!("Unknown command byte: {command_byte:#04x}")),

@@ -3,7 +3,6 @@ use crate::usb;
 use device::{ConnectionStatus, OutboundFrame, DeviceEvent};
 use futures::channel::mpsc;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use std::collections::VecDeque;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
@@ -23,6 +22,9 @@ pub struct MainApp {
     #[serde(skip)]
     current_device_mode: device::DeviceMode,
     #[serde(skip)]
+    firmware_version: Option<String>,
+    #[serde(skip)]
+    model_name: Option<String>,
     mode_on: bool,
     discharge_current: f32,
     discharge_cutoff_voltage: f32,
@@ -31,8 +33,6 @@ pub struct MainApp {
     charge_current: f32,
     charge_voltage: f32,
     charge_cutoff_current: f32,
-    #[serde(skip)]
-    frames: VecDeque<device::InboundFrame>,
 }
 
 impl Default for MainApp {
@@ -46,6 +46,8 @@ impl Default for MainApp {
             status: ConnectionStatus::Disconnected,
             current_device_mode: device::DeviceMode::DischargeConstantCurrent,
             mode_on: false,
+            firmware_version: None,
+            model_name: None,
             charge_current: 0.0,
             charge_cutoff_current: 0.0,
             charge_voltage: 0.0,
@@ -53,7 +55,6 @@ impl Default for MainApp {
             discharge_cutoff_voltage: 0.0,
             discharge_watts: 0,
             discharge_time: 0,
-            frames: VecDeque::new(),
         }
     }
 }
@@ -73,6 +74,31 @@ impl MainApp {
         app.event_rx = event_rx;
         app.event_tx = event_tx;
         app
+    }
+
+    fn consume_events(&mut self, _ctx: &egui::Context) {
+        while let Ok(event) = self.event_rx.try_recv() {
+            match event {
+                DeviceEvent::StatusChanged(status) => {
+                    log::info!("Device status changed: {:?}", status);
+                    self.status = status;
+                }
+                DeviceEvent::DevicesUpdated(devices) => {
+                    log::info!("Available devices updated: {:?}", devices);
+                    self.available_devices = devices;
+                }
+                DeviceEvent::Frame(frame) => {
+                    log::info!("{:?}", DeviceEvent::Frame(frame.clone()));
+                    match frame {
+                        device::InboundFrame::IdleFirmwareReport(firmware_report_struct ) => {
+                            self.firmware_version = Some(firmware_report_struct.firmware_version);
+                            self.model_name = Some(firmware_report_struct.device_type);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
     }
 
     fn usb_ui(&mut self, ui: &mut egui::Ui) {
@@ -136,6 +162,20 @@ impl MainApp {
                         self.cmd_tx.unbounded_send(OutboundFrame::Connect(idx)).ok();
                     }
                 }
+            }
+        });
+        ui.horizontal(|ui| {
+            if let Some(model_name) = &self.model_name {
+                ui.label(format!("Model: {model_name}"));
+            } else {
+                ui.label("Model: N/A");
+            }
+        });
+        ui.horizontal(|ui| {
+            if let Some(firmware_version) = &self.firmware_version {
+                ui.label(format!("Firmware Version: {firmware_version}"));
+            } else {
+                ui.label("Firmware Version: N/A");
             }
         });
     }
@@ -320,23 +360,7 @@ impl eframe::App for MainApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        // Drain all events from the device task and update the app state accordingly.
-        while let Ok(event) = self.event_rx.try_recv() {
-            match event {
-                DeviceEvent::StatusChanged(status) => {
-                    log::info!("Device status changed: {:?}", status);
-                    self.status = status;
-                }
-                DeviceEvent::DevicesUpdated(devices) => {
-                    log::info!("Available devices updated: {:?}", devices);
-                    self.available_devices = devices;
-                }
-                DeviceEvent::Frame(frame) => {
-                    log::info!("{:?}", DeviceEvent::Frame(frame.clone()));
-                    self.frames.push_back(frame);
-                }
-            }
-        }
+        self.consume_events(ui.ctx());
         egui::Panel::top("top_panel").show_inside(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 let is_web = cfg!(target_arch = "wasm32");
@@ -355,9 +379,8 @@ impl eframe::App for MainApp {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             self.usb_ui(ui);
             if self.status == ConnectionStatus::Connected {
-                //self.control_ui(ui);
+                self.control_ui(ui);
             }
-            self.control_ui(ui);
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 powered_by_egui_and_eframe(ui);
                 egui::warn_if_debug_build(ui);
