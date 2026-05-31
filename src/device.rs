@@ -170,11 +170,16 @@ enum CommmandType {
 
 enum StatusReportType {
     IdleStatusReport = 0x02,
-    DischargeReport = 0x0A,
-    ChargeConstantCurrentReport = 0x0C,
     IdleFirmwareReport = 0x66,
-    ChargingFirmwareReport = 0x70,
+    DischargeConstantCurrentReport = 0x0A,
+    // This report is exactly the same as above.
+    DischargeConstantCurrentIdleReport = 0x00,
     DischargeConstantCurrentFirmwareReport = 0x64,
+    DischargeConstantPowerIdleFirmwareReport = 0x65,
+    DischargeConstantPowerReport = 0x0B,
+    DischargeConstantPowerIdleReport = 0x01,
+    ChargeConstantCurrentReport = 0x0C,
+    ChargeConstantCurrentFirmwareReport = 0x70,
 }
 
 #[derive(Clone, Debug)]
@@ -182,7 +187,7 @@ pub struct IdleReport {
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
-    pub energy_wh: u16,
+    pub unknown: u16,
     pub param1: u16,
     pub param2: u16,
     pub param3: u16,
@@ -194,10 +199,11 @@ pub struct FirmwareReport {
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
-    pub energy_wh: u16,
+    pub unknown: u16,
     pub firmware_version: String,
-    pub unknown1: u16,
-    pub unknown2: u16,
+    // Calibration parameters, offset and gain maybe?
+    pub unknown1: u16, // Always 2988
+    pub unknown2: u16, // Always 2087
     pub device_type: String,
 }
 
@@ -206,7 +212,7 @@ pub struct ChargeReport {
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
-    pub energy_wh: u16,
+    pub unknown: u16,
     pub charge_current_ma: u16,
     pub charge_voltage_mv: u16,
     pub cutoff_current_ma: u16,
@@ -218,8 +224,20 @@ pub struct DischargeConstantCurrentReport {
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
-    pub energy_wh: u16,
+    pub unknown: u16,
     pub discharge_current_ma: u16,
+    pub cutoff_voltage_mv: u16,
+    pub cutoff_time_min: u16,
+    pub device_type: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct DischargeConstantPowerReport {
+    pub current_ma: u16,
+    pub voltage_mv: u16,
+    pub milli_ampere_hours: u16,
+    pub unknown: u16,
+    pub discharge_power_w: u16,
     pub cutoff_voltage_mv: u16,
     pub cutoff_time_min: u16,
     pub device_type: String,
@@ -231,7 +249,8 @@ pub enum InboundFrame {
     FirmwareReport(FirmwareReport),
     DischargeConstantCurrentReport(DischargeConstantCurrentReport),
     ChargeReport(ChargeReport),
-    DischargeConstantCurrentFirmwareReport(FirmwareReport),
+    DischargeConstantPowerReport(DischargeConstantPowerReport),
+    DischargeConstantPowerIdleReport(DischargeConstantPowerReport),
 }
 
 impl TryFrom<&[u8]> for InboundFrame {
@@ -270,17 +289,19 @@ impl TryFrom<&[u8]> for InboundFrame {
         }
         let command_byte = payload[0];
         match command_byte {
-            // Charging, discharge and idle firmware reports have same frame
-            // structure. The difference is that when charge is idle. It will
-            // send idle firmware report. When charging, firmware report is sent
-            // for few seconds and not after that. starting charge.
+            // Charging, discharge (constant power and current) and idle
+            // firmware reports have same frame structure. The difference is
+            // that when charge is idle. It will send idle firmware report. When
+            // charging, firmware report is sent for few seconds and not after
+            // that. starting charge.
             x if x == StatusReportType::IdleFirmwareReport as u8
-                || x == StatusReportType::ChargingFirmwareReport as u8
+                || x == StatusReportType::ChargeConstantCurrentFirmwareReport as u8
+                || x == StatusReportType::DischargeConstantPowerIdleFirmwareReport as u8
                 || x == StatusReportType::DischargeConstantCurrentFirmwareReport as u8 =>
             {
                 if value.len() != MAX_FRAME_SIZE {
                     return Err(format!(
-                        "Invalid frame length for IdleFirmwareReport or ChargingFirmwareReport: expected {}, got {}",
+                        "Invalid frame length for IdleFirmwareReport, ChargingFirmwareReport, DischargeConstantPowerIdleFirmwareReport, or DischargeConstantCurrentFirmwareReport: expected {}, got {}",
                         MAX_FRAME_SIZE,
                         value.len()
                     ));
@@ -290,10 +311,10 @@ impl TryFrom<&[u8]> for InboundFrame {
                 let minor = (version % 100) / 10;
                 let patch = version % 10;
                 return Ok(InboundFrame::FirmwareReport(FirmwareReport {
-                    current_ma: decode_base240(payload[1], payload[2]),
+                    current_ma: decode_base240(payload[1], payload[2]) * 10,
                     voltage_mv: decode_base240(payload[3], payload[4]),
                     milli_ampere_hours: decode_base240(payload[5], payload[6]),
-                    energy_wh: decode_base240(payload[7], payload[8]),
+                    unknown: decode_base240(payload[7], payload[8]),
                     firmware_version: format!("{}.{}.{}", major, minor, patch),
                     unknown1: decode_base240(payload[11], payload[12]),
                     unknown2: decode_base240(payload[13], payload[14]),
@@ -308,18 +329,16 @@ impl TryFrom<&[u8]> for InboundFrame {
                         value.len()
                     ));
                 }
-                return Ok(InboundFrame::ChargeReport(
-                    ChargeReport {
-                        current_ma: decode_base240(payload[1], payload[2]),
-                        voltage_mv: decode_base240(payload[3], payload[4]),
-                        milli_ampere_hours: decode_base240(payload[5], payload[6]),
-                        energy_wh: decode_base240(payload[7], payload[8]),
-                        charge_current_ma: decode_base240(payload[9], payload[10]),
-                        charge_voltage_mv: decode_base240(payload[11], payload[12]),
-                        cutoff_current_ma: decode_base240(payload[13], payload[14]),
-                        device_type: get_device_model_name(payload[15]),
-                    },
-                ));
+                return Ok(InboundFrame::ChargeReport(ChargeReport {
+                    current_ma: decode_base240(payload[1], payload[2]) * 10,
+                    voltage_mv: decode_base240(payload[3], payload[4]),
+                    milli_ampere_hours: decode_base240(payload[5], payload[6]),
+                    unknown: decode_base240(payload[7], payload[8]),
+                    charge_current_ma: decode_base240(payload[9], payload[10]) * 10,
+                    charge_voltage_mv: decode_base240(payload[11], payload[12]),
+                    cutoff_current_ma: decode_base240(payload[13], payload[14]),
+                    device_type: get_device_model_name(payload[15]),
+                }));
             }
             x if x == StatusReportType::IdleStatusReport as u8 => {
                 if value.len() != MAX_FRAME_SIZE {
@@ -330,31 +349,58 @@ impl TryFrom<&[u8]> for InboundFrame {
                     ));
                 }
                 return Ok(InboundFrame::IdleReport(IdleReport {
-                    current_ma: decode_base240(payload[1], payload[2]),
+                    current_ma: decode_base240(payload[1], payload[2]) * 10,
                     voltage_mv: decode_base240(payload[3], payload[4]),
                     milli_ampere_hours: decode_base240(payload[5], payload[6]),
-                    energy_wh: decode_base240(payload[7], payload[8]),
+                    unknown: decode_base240(payload[7], payload[8]),
                     param1: decode_base240(payload[9], payload[10]),
                     param2: decode_base240(payload[11], payload[12]),
                     param3: decode_base240(payload[13], payload[14]),
                     device_type: get_device_model_name(payload[15]),
                 }));
             }
-            x if x == StatusReportType::DischargeReport as u8 => {
+            // Discharge constant current report and idle report have same frame
+            // structure.
+            x if x == StatusReportType::DischargeConstantCurrentReport as u8
+                || x == StatusReportType::DischargeConstantCurrentIdleReport as u8 =>
+            {
                 if value.len() != MAX_FRAME_SIZE {
                     return Err(format!(
-                        "Invalid frame length for DischargeReport: expected {}, got {}",
+                        "Invalid frame length for DischargeConstantCurrentReport: expected {}, got {}",
                         MAX_FRAME_SIZE,
                         value.len()
                     ));
                 }
                 return Ok(InboundFrame::DischargeConstantCurrentReport(
                     DischargeConstantCurrentReport {
-                        current_ma: decode_base240(payload[1], payload[2]),
+                        current_ma: decode_base240(payload[1], payload[2]) * 10,
                         voltage_mv: decode_base240(payload[3], payload[4]),
                         milli_ampere_hours: decode_base240(payload[5], payload[6]),
-                        energy_wh: decode_base240(payload[7], payload[8]),
-                        discharge_current_ma: decode_base240(payload[9], payload[10]),
+                        unknown: decode_base240(payload[7], payload[8]),
+                        discharge_current_ma: decode_base240(payload[9], payload[10]) * 10,
+                        cutoff_voltage_mv: decode_base240(payload[11], payload[12]),
+                        cutoff_time_min: decode_base240(payload[13], payload[14]),
+                        device_type: get_device_model_name(payload[15]),
+                    },
+                ));
+            }
+            x if x == StatusReportType::DischargeConstantPowerReport as u8
+                || x == StatusReportType::DischargeConstantPowerIdleReport as u8 =>
+            {
+                if value.len() != MAX_FRAME_SIZE {
+                    return Err(format!(
+                        "Invalid frame length for DischargeConstantPowerReport or DischargeConstantPowerIdleReport: expected {}, got {}",
+                        MAX_FRAME_SIZE,
+                        value.len()
+                    ));
+                }
+                return Ok(InboundFrame::DischargeConstantPowerReport(
+                    DischargeConstantPowerReport {
+                        current_ma: decode_base240(payload[1], payload[2]) * 10,
+                        voltage_mv: decode_base240(payload[3], payload[4]),
+                        milli_ampere_hours: decode_base240(payload[5], payload[6]),
+                        unknown: decode_base240(payload[7], payload[8]),
+                        discharge_power_w: decode_base240(payload[9], payload[10]),
                         cutoff_voltage_mv: decode_base240(payload[11], payload[12]),
                         cutoff_time_min: decode_base240(payload[13], payload[14]),
                         device_type: get_device_model_name(payload[15]),
