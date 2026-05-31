@@ -168,6 +168,7 @@ enum CommmandType {
 
 enum StatusReportType {
     IdleStatusReport = 0x02,
+    CCCVInProgressReport = 0x0C,
     IdleFirmwareReport = 0x66,
 }
 
@@ -175,7 +176,7 @@ enum StatusReportType {
 pub struct IdleReportStruct {
     pub current_ma: u16,
     pub voltage_mv: u16,
-    pub charge_count: u16,
+    pub milli_ampere_hours: u16,
     pub energy_wh: u16,
     pub param1: u16,
     pub param2: u16,
@@ -187,7 +188,7 @@ pub struct IdleReportStruct {
 pub struct IdleFirmwareReportStruct {
     pub current_ma: u16,
     pub voltage_mv: u16,
-    pub charge_count: u16,
+    pub milli_ampere_hours: u16,
     pub energy_wh: u16,
     pub firmware_version: String,
     pub unknown1: u16,
@@ -196,9 +197,23 @@ pub struct IdleFirmwareReportStruct {
 }
 
 #[derive(Clone, Debug)]
+pub struct CCCVInProgressReportStruct {
+    pub current_ma: u16,
+    pub voltage_mv: u16,
+    pub milli_ampere_hours: u16,
+    pub energy_wh: u16,
+    pub charge_current_ma: u16,
+    pub charge_voltage_mv: u16,
+    pub cutoff_current_ma: u16,
+    pub device_type: String,
+}
+
+#[derive(Clone, Debug)]
 pub enum InboundFrame {
     IdleReport(IdleReportStruct),
     IdleFirmwareReport(IdleFirmwareReportStruct),
+    // Constant Current / Constant Voltage charge in progress report.
+    CCCVInProgressReport(CCCVInProgressReportStruct),
 }
 
 impl TryFrom<&[u8]> for InboundFrame {
@@ -246,11 +261,30 @@ impl TryFrom<&[u8]> for InboundFrame {
                 return Ok(InboundFrame::IdleFirmwareReport(IdleFirmwareReportStruct {
                     current_ma: decode_base240(payload[1], payload[2]),
                     voltage_mv: decode_base240(payload[3], payload[4]),
-                    charge_count: decode_base240(payload[5], payload[6]),
+                    milli_ampere_hours: decode_base240(payload[5], payload[6]),
                     energy_wh: decode_base240(payload[7], payload[8]),
                     firmware_version: format!("{}.{}.{}", major, minor, patch),
                     unknown1: decode_base240(payload[11], payload[12]),
                     unknown2: decode_base240(payload[13], payload[14]),
+                    device_type: get_device_model_name(payload[15]),
+                }));
+            }
+            x if x == StatusReportType::CCCVInProgressReport as u8 => {
+                if value.len() != MAX_FRAME_SIZE {
+                    return Err(format!(
+                        "Invalid frame length for CCCVInProgressReport: expected {}, got {}",
+                        MAX_FRAME_SIZE,
+                        value.len()
+                    ));
+                }
+                return Ok(InboundFrame::CCCVInProgressReport(CCCVInProgressReportStruct {
+                    current_ma: decode_base240(payload[1], payload[2]),
+                    voltage_mv: decode_base240(payload[3], payload[4]),
+                    milli_ampere_hours: decode_base240(payload[5], payload[6]),
+                    energy_wh: decode_base240(payload[7], payload[8]),
+                    charge_current_ma: decode_base240(payload[9], payload[10]),
+                    charge_voltage_mv: decode_base240(payload[11], payload[12]),
+                    cutoff_current_ma: decode_base240(payload[13], payload[14]),
                     device_type: get_device_model_name(payload[15]),
                 }));
             }
@@ -265,7 +299,7 @@ impl TryFrom<&[u8]> for InboundFrame {
                 return Ok(InboundFrame::IdleReport(IdleReportStruct {
                     current_ma: decode_base240(payload[1], payload[2]),
                     voltage_mv: decode_base240(payload[3], payload[4]),
-                    charge_count: decode_base240(payload[5], payload[6]),
+                    milli_ampere_hours: decode_base240(payload[5], payload[6]),
                     energy_wh: decode_base240(payload[7], payload[8]),
                     param1: decode_base240(payload[9], payload[10]),
                     param2: decode_base240(payload[11], payload[12]),

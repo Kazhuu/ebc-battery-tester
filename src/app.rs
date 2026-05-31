@@ -1,6 +1,6 @@
 use crate::device;
 use crate::usb;
-use device::{ConnectionStatus, OutboundFrame, DeviceEvent};
+use device::{ConnectionStatus, DeviceEvent, OutboundFrame};
 use futures::channel::mpsc;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -25,6 +25,12 @@ pub struct MainApp {
     firmware_version: Option<String>,
     #[serde(skip)]
     model_name: Option<String>,
+    #[serde(skip)]
+    live_voltage_mv: Option<u16>,
+    #[serde(skip)]
+    live_current_ma: Option<u16>,
+    #[serde(skip)]
+    live_milli_ampere_hours: Option<u16>,
     mode_on: bool,
     discharge_current: f32,
     discharge_cutoff_voltage: f32,
@@ -55,6 +61,9 @@ impl Default for MainApp {
             discharge_cutoff_voltage: 0.0,
             discharge_watts: 0,
             discharge_time: 0,
+            live_voltage_mv: None,
+            live_current_ma: None,
+            live_milli_ampere_hours: None,
         }
     }
 }
@@ -90,15 +99,60 @@ impl MainApp {
                 DeviceEvent::Frame(frame) => {
                     log::info!("{:?}", DeviceEvent::Frame(frame.clone()));
                     match frame {
-                        device::InboundFrame::IdleFirmwareReport(firmware_report_struct ) => {
+                        device::InboundFrame::IdleFirmwareReport(firmware_report_struct) => {
                             self.firmware_version = Some(firmware_report_struct.firmware_version);
                             self.model_name = Some(firmware_report_struct.device_type);
+                        }
+                        device::InboundFrame::IdleReport(idle_report_struct) => {
+                            self.live_voltage_mv = Some(idle_report_struct.voltage_mv);
+                            self.live_current_ma = Some(idle_report_struct.current_ma);
+                            self.live_milli_ampere_hours = Some(idle_report_struct.milli_ampere_hours);
+                        }
+                        device::InboundFrame::CCCVInProgressReport(cccv_report_struct) => {
+                            self.live_voltage_mv = Some(cccv_report_struct.voltage_mv);
+                            self.live_current_ma = Some(cccv_report_struct.current_ma);
+                            self.live_milli_ampere_hours = Some(cccv_report_struct.milli_ampere_hours);
                         }
                         _ => {}
                     }
                 }
             }
         }
+    }
+
+    fn live_data_ui(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        ui.horizontal(|ui| {
+            if let Some(model_name) = &self.model_name {
+                ui.label(format!("Model: {model_name}"));
+            } else {
+                ui.label("Model: N/A");
+            }
+        });
+        ui.horizontal(|ui| {
+            if let Some(firmware_version) = &self.firmware_version {
+                ui.label(format!("Firmware Version: {firmware_version}"));
+            } else {
+                ui.label("Firmware Version: N/A");
+            }
+        });
+        ui.horizontal(|ui| {
+            if let Some(voltage_mv) = self.live_voltage_mv {
+                ui.label(format!("{:.3} V", voltage_mv as f32 / 1000.0));
+            } else {
+                ui.label("- V");
+            }
+            if let Some(current_ma) = self.live_current_ma {
+                ui.label(format!("{:.2} A", current_ma as f32 / 1000.0));
+            } else {
+                ui.label("- A");
+            }
+            if let Some(milli_ampere_hours) = self.live_milli_ampere_hours {
+                ui.label(format!("{:.2} mAh", milli_ampere_hours));
+            } else {
+                ui.label("- mAh");
+            }
+        });
     }
 
     fn usb_ui(&mut self, ui: &mut egui::Ui) {
@@ -162,20 +216,6 @@ impl MainApp {
                         self.cmd_tx.unbounded_send(OutboundFrame::Connect(idx)).ok();
                     }
                 }
-            }
-        });
-        ui.horizontal(|ui| {
-            if let Some(model_name) = &self.model_name {
-                ui.label(format!("Model: {model_name}"));
-            } else {
-                ui.label("Model: N/A");
-            }
-        });
-        ui.horizontal(|ui| {
-            if let Some(firmware_version) = &self.firmware_version {
-                ui.label(format!("Firmware Version: {firmware_version}"));
-            } else {
-                ui.label("Firmware Version: N/A");
             }
         });
     }
@@ -378,6 +418,7 @@ impl eframe::App for MainApp {
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             self.usb_ui(ui);
+            self.live_data_ui(ui);
             if self.status == ConnectionStatus::Connected {
                 self.control_ui(ui);
             }
