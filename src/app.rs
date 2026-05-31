@@ -19,7 +19,6 @@ pub struct MainApp {
     event_tx: UnboundedSender<DeviceEvent>,
     #[serde(skip)]
     status: ConnectionStatus,
-    #[serde(skip)]
     current_device_mode: device::DeviceMode,
     #[serde(skip)]
     firmware_version: Option<String>,
@@ -99,7 +98,10 @@ impl MainApp {
                 DeviceEvent::Frame(frame) => {
                     log::info!("{:?}", DeviceEvent::Frame(frame.clone()));
                     match frame {
-                        device::InboundFrame::IdleFirmwareReport(firmware_report_struct) => {
+                        device::InboundFrame::FirmwareReport(firmware_report_struct) => {
+                            self.live_voltage_mv = Some(firmware_report_struct.voltage_mv);
+                            self.live_current_ma = Some(firmware_report_struct.current_ma);
+                            self.live_milli_ampere_hours = Some(firmware_report_struct.milli_ampere_hours);
                             self.firmware_version = Some(firmware_report_struct.firmware_version);
                             self.model_name = Some(firmware_report_struct.device_type);
                         }

@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 pub const MAX_FRAME_SIZE: usize = 19;
 
 // Start of Frame (SOF) and End of Frame (EOF) bytes.
@@ -69,7 +71,7 @@ pub enum ConnectionStatus {
     Error(String),
 }
 
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeviceMode {
     DischargeConstantCurrent,
     DischargeConstantPower,
@@ -170,6 +172,7 @@ enum StatusReportType {
     IdleStatusReport = 0x02,
     CCCVInProgressReport = 0x0C,
     IdleFirmwareReport = 0x66,
+    ChargingFirmwareReport = 0x70,
 }
 
 #[derive(Clone, Debug)]
@@ -185,7 +188,7 @@ pub struct IdleReportStruct {
 }
 
 #[derive(Clone, Debug)]
-pub struct IdleFirmwareReportStruct {
+pub struct FirmwareReportStruct {
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
@@ -211,7 +214,8 @@ pub struct CCCVInProgressReportStruct {
 #[derive(Clone, Debug)]
 pub enum InboundFrame {
     IdleReport(IdleReportStruct),
-    IdleFirmwareReport(IdleFirmwareReportStruct),
+    FirmwareReport(FirmwareReportStruct),
+    ChargingFirmwareReport(FirmwareReportStruct),
     // Constant Current / Constant Voltage charge in progress report.
     CCCVInProgressReport(CCCVInProgressReportStruct),
 }
@@ -246,10 +250,16 @@ impl TryFrom<&[u8]> for InboundFrame {
         }
         let command_byte = payload[0];
         match command_byte {
-            x if x == StatusReportType::IdleFirmwareReport as u8 => {
+            // Charging and idle firmware reports have same frame structure. The
+            // difference is that when charge is idle. It will send idle
+            // firmware report. When charging, firmware report is sent for few
+            // seconds and not after that. starting charge.
+            x if x == StatusReportType::IdleFirmwareReport as u8
+                || x == StatusReportType::ChargingFirmwareReport as u8 =>
+            {
                 if value.len() != MAX_FRAME_SIZE {
                     return Err(format!(
-                        "Invalid frame length for IdleFirmwareReport: expected {}, got {}",
+                        "Invalid frame length for IdleFirmwareReport or ChargingFirmwareReport: expected {}, got {}",
                         MAX_FRAME_SIZE,
                         value.len()
                     ));
@@ -258,7 +268,7 @@ impl TryFrom<&[u8]> for InboundFrame {
                 let major = version / 100;
                 let minor = (version % 100) / 10;
                 let patch = version % 10;
-                return Ok(InboundFrame::IdleFirmwareReport(IdleFirmwareReportStruct {
+                return Ok(InboundFrame::FirmwareReport(FirmwareReportStruct {
                     current_ma: decode_base240(payload[1], payload[2]),
                     voltage_mv: decode_base240(payload[3], payload[4]),
                     milli_ampere_hours: decode_base240(payload[5], payload[6]),
@@ -277,16 +287,18 @@ impl TryFrom<&[u8]> for InboundFrame {
                         value.len()
                     ));
                 }
-                return Ok(InboundFrame::CCCVInProgressReport(CCCVInProgressReportStruct {
-                    current_ma: decode_base240(payload[1], payload[2]),
-                    voltage_mv: decode_base240(payload[3], payload[4]),
-                    milli_ampere_hours: decode_base240(payload[5], payload[6]),
-                    energy_wh: decode_base240(payload[7], payload[8]),
-                    charge_current_ma: decode_base240(payload[9], payload[10]),
-                    charge_voltage_mv: decode_base240(payload[11], payload[12]),
-                    cutoff_current_ma: decode_base240(payload[13], payload[14]),
-                    device_type: get_device_model_name(payload[15]),
-                }));
+                return Ok(InboundFrame::CCCVInProgressReport(
+                    CCCVInProgressReportStruct {
+                        current_ma: decode_base240(payload[1], payload[2]),
+                        voltage_mv: decode_base240(payload[3], payload[4]),
+                        milli_ampere_hours: decode_base240(payload[5], payload[6]),
+                        energy_wh: decode_base240(payload[7], payload[8]),
+                        charge_current_ma: decode_base240(payload[9], payload[10]),
+                        charge_voltage_mv: decode_base240(payload[11], payload[12]),
+                        cutoff_current_ma: decode_base240(payload[13], payload[14]),
+                        device_type: get_device_model_name(payload[15]),
+                    },
+                ));
             }
             x if x == StatusReportType::IdleStatusReport as u8 => {
                 if value.len() != MAX_FRAME_SIZE {
