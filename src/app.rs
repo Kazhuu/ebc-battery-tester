@@ -110,10 +110,15 @@ impl MainApp {
                             self.live_current_ma = Some(idle_report_struct.current_ma);
                             self.live_milli_ampere_hours = Some(idle_report_struct.milli_ampere_hours);
                         }
-                        device::InboundFrame::CCCVInProgressReport(cccv_report_struct) => {
+                        device::InboundFrame::ChargeReport(cccv_report_struct) => {
                             self.live_voltage_mv = Some(cccv_report_struct.voltage_mv);
                             self.live_current_ma = Some(cccv_report_struct.current_ma);
                             self.live_milli_ampere_hours = Some(cccv_report_struct.milli_ampere_hours);
+                        }
+                        device::InboundFrame::DischargeConstantCurrentReport(discharge_report_struct) => {
+                            self.live_voltage_mv = Some(discharge_report_struct.voltage_mv);
+                            self.live_current_ma = Some(discharge_report_struct.current_ma);
+                            self.live_milli_ampere_hours = Some(discharge_report_struct.milli_ampere_hours);
                         }
                         _ => {}
                     }

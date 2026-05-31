@@ -170,13 +170,14 @@ enum CommmandType {
 
 enum StatusReportType {
     IdleStatusReport = 0x02,
-    CCCVInProgressReport = 0x0C,
+    DischargeReport = 0x0A,
+    ChargeConstantCurrentReport = 0x0C,
     IdleFirmwareReport = 0x66,
     ChargingFirmwareReport = 0x70,
 }
 
 #[derive(Clone, Debug)]
-pub struct IdleReportStruct {
+pub struct IdleReport {
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
@@ -188,7 +189,7 @@ pub struct IdleReportStruct {
 }
 
 #[derive(Clone, Debug)]
-pub struct FirmwareReportStruct {
+pub struct FirmwareReport {
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
@@ -200,7 +201,7 @@ pub struct FirmwareReportStruct {
 }
 
 #[derive(Clone, Debug)]
-pub struct CCCVInProgressReportStruct {
+pub struct ChargeReport {
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
@@ -212,12 +213,23 @@ pub struct CCCVInProgressReportStruct {
 }
 
 #[derive(Clone, Debug)]
+pub struct DischargeConstantCurrentReport {
+    pub current_ma: u16,
+    pub voltage_mv: u16,
+    pub milli_ampere_hours: u16,
+    pub energy_wh: u16,
+    pub discharge_current_ma: u16,
+    pub cutoff_voltage_mv: u16,
+    pub cutoff_time_min: u16,
+    pub device_type: String,
+}
+
+#[derive(Clone, Debug)]
 pub enum InboundFrame {
-    IdleReport(IdleReportStruct),
-    FirmwareReport(FirmwareReportStruct),
-    ChargingFirmwareReport(FirmwareReportStruct),
-    // Constant Current / Constant Voltage charge in progress report.
-    CCCVInProgressReport(CCCVInProgressReportStruct),
+    IdleReport(IdleReport),
+    FirmwareReport(FirmwareReport),
+    DischargeConstantCurrentReport(DischargeConstantCurrentReport),
+    ChargeReport(ChargeReport),
 }
 
 impl TryFrom<&[u8]> for InboundFrame {
@@ -241,12 +253,18 @@ impl TryFrom<&[u8]> for InboundFrame {
         }
         let payload = &value[1..value.len() - 2];
         let checksum = value[value.len() - 2];
-        if xor_checksum(payload) != checksum {
-            return Err(format!(
+        let calculated_checksum = xor_checksum(payload);
+        // It seems there is a bug in the device firmware. When you discharge to
+        // 3.3V with 1A. The checksum byte is wrong after about 2 mins of
+        // discharging. If the checksum is ignored, the frame still has correct
+        // data in it. This happens with firmware version 3.0.2 to me at least.
+        // So we log the checksum error instead.
+        if calculated_checksum != checksum {
+            log::warn!(
                 "Invalid checksum: expected {:#04x}, got {:#04x}",
-                xor_checksum(payload),
+                calculated_checksum,
                 checksum
-            ));
+            );
         }
         let command_byte = payload[0];
         match command_byte {
@@ -268,7 +286,7 @@ impl TryFrom<&[u8]> for InboundFrame {
                 let major = version / 100;
                 let minor = (version % 100) / 10;
                 let patch = version % 10;
-                return Ok(InboundFrame::FirmwareReport(FirmwareReportStruct {
+                return Ok(InboundFrame::FirmwareReport(FirmwareReport {
                     current_ma: decode_base240(payload[1], payload[2]),
                     voltage_mv: decode_base240(payload[3], payload[4]),
                     milli_ampere_hours: decode_base240(payload[5], payload[6]),
@@ -279,16 +297,16 @@ impl TryFrom<&[u8]> for InboundFrame {
                     device_type: get_device_model_name(payload[15]),
                 }));
             }
-            x if x == StatusReportType::CCCVInProgressReport as u8 => {
+            x if x == StatusReportType::ChargeConstantCurrentReport as u8 => {
                 if value.len() != MAX_FRAME_SIZE {
                     return Err(format!(
-                        "Invalid frame length for CCCVInProgressReport: expected {}, got {}",
+                        "Invalid frame length for ChargeConstantCurrentReport: expected {}, got {}",
                         MAX_FRAME_SIZE,
                         value.len()
                     ));
                 }
-                return Ok(InboundFrame::CCCVInProgressReport(
-                    CCCVInProgressReportStruct {
+                return Ok(InboundFrame::ChargeReport(
+                    ChargeReport {
                         current_ma: decode_base240(payload[1], payload[2]),
                         voltage_mv: decode_base240(payload[3], payload[4]),
                         milli_ampere_hours: decode_base240(payload[5], payload[6]),
@@ -308,7 +326,7 @@ impl TryFrom<&[u8]> for InboundFrame {
                         value.len()
                     ));
                 }
-                return Ok(InboundFrame::IdleReport(IdleReportStruct {
+                return Ok(InboundFrame::IdleReport(IdleReport {
                     current_ma: decode_base240(payload[1], payload[2]),
                     voltage_mv: decode_base240(payload[3], payload[4]),
                     milli_ampere_hours: decode_base240(payload[5], payload[6]),
@@ -318,6 +336,27 @@ impl TryFrom<&[u8]> for InboundFrame {
                     param3: decode_base240(payload[13], payload[14]),
                     device_type: get_device_model_name(payload[15]),
                 }));
+            }
+            x if x == StatusReportType::DischargeReport as u8 => {
+                if value.len() != MAX_FRAME_SIZE {
+                    return Err(format!(
+                        "Invalid frame length for DischargeReport: expected {}, got {}",
+                        MAX_FRAME_SIZE,
+                        value.len()
+                    ));
+                }
+                return Ok(InboundFrame::DischargeConstantCurrentReport(
+                    DischargeConstantCurrentReport {
+                        current_ma: decode_base240(payload[1], payload[2]),
+                        voltage_mv: decode_base240(payload[3], payload[4]),
+                        milli_ampere_hours: decode_base240(payload[5], payload[6]),
+                        energy_wh: decode_base240(payload[7], payload[8]),
+                        discharge_current_ma: decode_base240(payload[9], payload[10]),
+                        cutoff_voltage_mv: decode_base240(payload[11], payload[12]),
+                        cutoff_time_min: decode_base240(payload[13], payload[14]),
+                        device_type: get_device_model_name(payload[15]),
+                    },
+                ));
             }
             _ => return Err(format!("Unknown command byte: {command_byte:#04x}")),
         }
