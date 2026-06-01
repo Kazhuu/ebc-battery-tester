@@ -106,16 +106,19 @@ impl MainApp {
                             self.model_name = Some(firmware_report_struct.device_type);
                         }
                         device::InboundFrame::ChargeReport(cccv_report_struct) => {
+                            self.mode_on = cccv_report_struct.in_progress;
                             self.live_voltage_mv = Some(cccv_report_struct.voltage_mv);
                             self.live_current_ma = Some(cccv_report_struct.current_ma);
                             self.live_milli_ampere_hours = Some(cccv_report_struct.milli_ampere_hours);
                         }
                         device::InboundFrame::DischargeConstantCurrentReport(discharge_report_struct) => {
+                            self.mode_on = discharge_report_struct.in_progress;
                             self.live_voltage_mv = Some(discharge_report_struct.voltage_mv);
                             self.live_current_ma = Some(discharge_report_struct.current_ma);
                             self.live_milli_ampere_hours = Some(discharge_report_struct.milli_ampere_hours);
                         }
                         device::InboundFrame::DischargeConstantPowerReport(discharge_report_struct) => {
+                            self.mode_on = discharge_report_struct.in_progress;
                             self.live_voltage_mv = Some(discharge_report_struct.voltage_mv);
                             self.live_current_ma = Some(discharge_report_struct.current_ma);
                             self.live_milli_ampere_hours = Some(discharge_report_struct.milli_ampere_hours);
