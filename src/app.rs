@@ -293,14 +293,6 @@ impl MainApp {
                         self.mode_on = true;
                     }
                 }
-                if ui.button("Continue").clicked() {
-                    self.cmd_tx.unbounded_send(OutboundFrame::Continue).ok();
-                }
-                if ui.button("Stop Discharge").clicked() {
-                    self.cmd_tx
-                        .unbounded_send(OutboundFrame::StopConstantCurrentDischarge)
-                        .ok();
-                }
             }
             device::DeviceMode::DischargeConstantPower => {
                 ui.label("Discharge Power:");
@@ -347,9 +339,6 @@ impl MainApp {
                             .ok();
                         self.mode_on = true;
                     }
-                }
-                if ui.button("Continue").clicked() {
-                    self.cmd_tx.unbounded_send(OutboundFrame::Continue).ok();
                 }
             }
             device::DeviceMode::ChargeConstantVoltage => {
