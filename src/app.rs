@@ -3,6 +3,11 @@ use crate::usb;
 use device::{ConnectionStatus, DeviceEvent, OutboundFrame};
 use futures::channel::mpsc;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use egui_plot::Legend;
+use egui_plot::Line;
+use egui_plot::Plot;
+use egui_plot::PlotPoint;
+use egui_plot::PlotPoints;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
@@ -30,6 +35,12 @@ pub struct MainApp {
     live_current_ma: Option<u16>,
     #[serde(skip)]
     live_milli_ampere_hours: Option<u16>,
+    #[serde(skip)]
+    voltage_points: Vec<PlotPoint>,
+    #[serde(skip)]
+    amperes_points: Vec<PlotPoint>,
+    #[serde(skip)]
+    mode_start_time: Option<f64>,
     mode_on: bool,
     discharge_current: f32,
     discharge_cutoff_voltage: f32,
@@ -63,6 +74,9 @@ impl Default for MainApp {
             live_voltage_mv: None,
             live_current_ma: None,
             live_milli_ampere_hours: None,
+            voltage_points: Vec::new(),
+            amperes_points: Vec::new(),
+            mode_start_time: None,
         }
     }
 }
@@ -84,7 +98,7 @@ impl MainApp {
         app
     }
 
-    fn consume_events(&mut self, _ctx: &egui::Context) {
+    fn consume_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
                 DeviceEvent::StatusChanged(status) => {
@@ -110,6 +124,18 @@ impl MainApp {
                             self.live_voltage_mv = Some(cccv_report_struct.voltage_mv);
                             self.live_current_ma = Some(cccv_report_struct.current_ma);
                             self.live_milli_ampere_hours = Some(cccv_report_struct.milli_ampere_hours);
+                            self.voltage_points.push(PlotPoint::new(
+                                self.mode_start_time
+                                    .map(|start| ctx.input(|ui| ui.time) - start)
+                                    .unwrap_or(0.0),
+                                self.live_voltage_mv.unwrap_or(0) as f64 / 1000.0,
+                            ));
+                            self.amperes_points.push(PlotPoint::new(
+                                self.mode_start_time
+                                    .map(|start| ctx.input(|ui| ui.time) - start)
+                                    .unwrap_or(0.0),
+                                self.live_current_ma.unwrap_or(0) as f64 / 1000.0,
+                            ));
                         }
                         device::InboundFrame::DischargeConstantCurrentReport(discharge_report_struct) => {
                             self.mode_on = discharge_report_struct.in_progress;
@@ -385,11 +411,30 @@ impl MainApp {
                                 (self.charge_cutoff_current * 1000.0) as u16,
                             ))
                             .ok();
+                        self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
                         self.mode_on = true;
+                        self.voltage_points.clear();
+                        self.amperes_points.clear();
                     }
                 }
             }
         }
+    }
+
+
+
+    fn plot_ui(&mut self, ui: &mut egui::Ui) {
+        let label_formatter = |_s: &str, val: &PlotPoint| {
+            format!("{:.2} s: {:.3} V, {:.2} A", val.x, val.y, self.live_current_ma.unwrap_or(0) as f64 / 1000.0)
+        };
+
+        Plot::new("live_data_plot")
+            .legend(Legend::default())
+            .label_formatter(label_formatter)
+            .show(ui, |plot_ui| {
+                plot_ui.line(Line::new("Voltage", PlotPoints::Borrowed(&self.voltage_points)).name("Voltage"));
+                plot_ui.line(Line::new("Current", PlotPoints::Borrowed(&self.amperes_points)).name("Current"));
+            });
     }
 }
 
@@ -421,6 +466,7 @@ impl eframe::App for MainApp {
             if self.status == ConnectionStatus::Connected {
                 self.control_ui(ui);
             }
+            self.plot_ui(ui);
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 powered_by_egui_and_eframe(ui);
                 egui::warn_if_debug_build(ui);
