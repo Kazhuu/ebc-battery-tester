@@ -157,15 +157,20 @@ impl std::convert::From<OutboundFrame> for [u8; 10] {
 }
 
 enum CommmandType {
+    StartConstantCurrentDischarge = 0x01,
+    Stop = 0x02,
     Connect = 0x05,
     Disconnect = 0x06,
-    Stop = 0x02,
-    StartConstantCurrentDischarge = 0x01,
     StartConstantPowerDischarge = 0x11,
     StartConstantVoltageCharge = 0x21,
     // TODO: This seems to trigger discharge constant power???
     Continue = 0x18,
+    // TODO: Does this work?
     StopConstantCurrentDischarge = 0x08,
+    // TODO: Not tested.
+    AdjustDischargeConstantCurrent = 0x07,
+    // TODO: Not tested.
+    ChargeTimeQuery = 0x0A,
 }
 
 enum StatusReportType {
