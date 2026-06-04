@@ -24,7 +24,6 @@ pub struct MainApp {
     event_tx: UnboundedSender<DeviceEvent>,
     #[serde(skip)]
     status: ConnectionStatus,
-    current_device_mode: device::DeviceMode,
     #[serde(skip)]
     firmware_version: Option<String>,
     #[serde(skip)]
@@ -41,7 +40,11 @@ pub struct MainApp {
     amperes_points: Vec<PlotPoint>,
     #[serde(skip)]
     mode_start_time: Option<f64>,
+    #[serde(skip)]
+    current_device_mode: Option<device::DeviceMode>,
+    #[serde(skip)]
     mode_on: bool,
+    selected_device_mode: device::DeviceMode,
     discharge_current: f32,
     discharge_cutoff_voltage: f32,
     discharge_watts: u16,
@@ -60,7 +63,8 @@ impl Default for MainApp {
             event_rx: mpsc::unbounded::<DeviceEvent>().1,
             event_tx: mpsc::unbounded::<DeviceEvent>().0,
             status: ConnectionStatus::Disconnected,
-            current_device_mode: device::DeviceMode::DischargeConstantCurrent,
+            selected_device_mode: device::DeviceMode::DischargeConstantCurrent,
+            current_device_mode: None,
             mode_on: false,
             firmware_version: None,
             model_name: None,
@@ -117,6 +121,8 @@ impl MainApp {
                     log::info!("{:?}", DeviceEvent::Frame(frame.clone()));
                     match frame {
                         device::InboundFrame::FirmwareReport(firmware_report_struct) => {
+                            self.current_device_mode = Some(firmware_report_struct.device_mode);
+                            self.mode_on = firmware_report_struct.in_progress;
                             self.live_voltage_mv = firmware_report_struct.voltage_mv;
                             self.live_current_ma = firmware_report_struct.current_ma;
                             self.live_milli_ampere_hours =
@@ -125,6 +131,8 @@ impl MainApp {
                             self.model_name = Some(firmware_report_struct.device_type);
                         }
                         device::InboundFrame::ChargeReport(cccv_report_struct) => {
+                            self.current_device_mode =
+                                Some(device::DeviceMode::ChargeConstantVoltage);
                             self.mode_on = cccv_report_struct.in_progress;
                             self.live_voltage_mv = cccv_report_struct.voltage_mv;
                             self.live_current_ma = cccv_report_struct.current_ma;
@@ -145,6 +153,8 @@ impl MainApp {
                         device::InboundFrame::DischargeConstantCurrentReport(
                             discharge_report_struct,
                         ) => {
+                            self.current_device_mode =
+                                Some(device::DeviceMode::DischargeConstantCurrent);
                             self.mode_on = discharge_report_struct.in_progress;
                             self.live_voltage_mv = discharge_report_struct.voltage_mv;
                             self.live_current_ma = discharge_report_struct.current_ma;
@@ -154,6 +164,8 @@ impl MainApp {
                         device::InboundFrame::DischargeConstantPowerReport(
                             discharge_report_struct,
                         ) => {
+                            self.current_device_mode =
+                                Some(device::DeviceMode::DischargeConstantPower);
                             self.mode_on = discharge_report_struct.in_progress;
                             self.live_voltage_mv = discharge_report_struct.voltage_mv;
                             self.live_current_ma = discharge_report_struct.current_ma;
@@ -165,38 +177,6 @@ impl MainApp {
                 }
             }
         }
-    }
-
-    fn live_data_ui(&mut self, ui: &mut egui::Ui) {
-        ui.separator();
-        ui.horizontal(|ui| {
-            if let Some(model_name) = &self.model_name {
-                ui.label(format!("Model: {model_name}"));
-            } else {
-                ui.label("Model: --");
-            }
-            if let Some(firmware_version) = &self.firmware_version {
-                ui.label(format!("Firmware: v{firmware_version}"));
-            } else {
-                ui.label("Firmware: --");
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("Status: ");
-            if self.mode_on {
-                ui.colored_label(ui.visuals().warn_fg_color, "Running");
-            } else {
-                ui.label("Idle");
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label(format!("{:.3} V", self.live_voltage_mv as f32 / 1000.0));
-            ui.label(format!("{:.2} A", self.live_current_ma as f32 / 1000.0));
-            ui.label(format!("{:.2} mAh", self.live_milli_ampere_hours));
-            if !has_live_voltage(self) {
-                ui.colored_label(ui.visuals().error_fg_color, "Connect the device to a battery");
-            }
-        });
     }
 
     fn usb_ui(&mut self, ui: &mut egui::Ui) {
@@ -213,6 +193,16 @@ impl MainApp {
             .and_then(|i| device_labels.get(i))
             .map_or_else(|| "No device selected".to_owned(), Clone::clone);
 
+        ui.label("New device:");
+        ui.horizontal(|ui| {
+            if ui.button("Pair new device").clicked() {
+                usb::request_device(self.event_tx.clone());
+            }
+            if ui.button("Refresh").clicked() {
+                usb::enumerate_devices(self.event_tx.clone());
+            }
+        });
+        ui.label("Select device:");
         ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt("usb_device_selector")
                 .selected_text(selected_text)
@@ -224,41 +214,82 @@ impl MainApp {
                         ui.selectable_value(&mut self.selected_device_index, Some(i), label);
                     }
                 });
-
-            if ui.button("Refresh").clicked() {
-                usb::enumerate_devices(self.event_tx.clone());
-            }
-            if ui.button("Pair new device").clicked() {
-                usb::request_device(self.event_tx.clone());
+            match &self.status {
+                ConnectionStatus::Disconnected => {
+                    if let Some(idx) = self.selected_device_index {
+                        if ui.button("Connect").clicked() {
+                            self.cmd_tx.unbounded_send(OutboundFrame::Connect(idx)).ok();
+                        }
+                    }
+                }
+                ConnectionStatus::Connecting => {
+                    ui.spinner();
+                    ui.label("Connecting...");
+                }
+                ConnectionStatus::Connected => {
+                    if ui.button("Disconnect").clicked() {
+                        self.cmd_tx.unbounded_send(OutboundFrame::Disconnect).ok();
+                    }
+                }
+                ConnectionStatus::Error(msg) => {
+                    // TODO: Show error somewhere else.
+                    ui.colored_label(egui::Color32::RED, format!("Error: {msg}"));
+                    if let Some(idx) = self.selected_device_index {
+                        if ui.button("Retry").clicked() {
+                            self.cmd_tx.unbounded_send(OutboundFrame::Connect(idx)).ok();
+                        }
+                    }
+                }
             }
         });
+    }
 
-        ui.horizontal(|ui: &mut egui::Ui| match &self.status {
-            ConnectionStatus::Disconnected => {
-                ui.label("Status: Disconnected");
-                if let Some(idx) = self.selected_device_index {
-                    if ui.button("Connect").clicked() {
-                        self.cmd_tx.unbounded_send(OutboundFrame::Connect(idx)).ok();
-                    }
-                }
+    fn live_data_ui(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        ui.heading("Live Data");
+        ui.horizontal(|ui| {
+            ui.label("Measurements:");
+            if !has_live_voltage(self) {
+                ui.colored_label(
+                    ui.visuals().error_fg_color,
+                    "Connect the device to a battery",
+                );
             }
-            ConnectionStatus::Connecting => {
-                ui.spinner();
-                ui.label("Connecting...");
+        });
+        ui.horizontal(|ui| {
+            ui.label(format!("{:.3} V", self.live_voltage_mv as f32 / 1000.0));
+            ui.label(format!("{:.2} A", self.live_current_ma as f32 / 1000.0));
+            ui.label(format!("{:.2} mAh", self.live_milli_ampere_hours));
+        });
+        ui.horizontal(|ui| {
+            ui.label("Mode:");
+            if let Some(current_device_mode) = self.current_device_mode {
+                ui.colored_label(
+                    if self.mode_on {
+                        ui.visuals().warn_fg_color
+                    } else {
+                        ui.visuals().text_color()
+                    },
+                    &format!(
+                        "{}{}",
+                        current_device_mode.to_string(),
+                        if self.mode_on { " (On)" } else { " (Off)" }
+                    ),
+                );
+            } else {
+                ui.label("--");
             }
-            ConnectionStatus::Connected => {
-                ui.colored_label(egui::Color32::GREEN, "Status: Connected");
-                if ui.button("Disconnect").clicked() {
-                    self.cmd_tx.unbounded_send(OutboundFrame::Disconnect).ok();
-                }
+        });
+        ui.horizontal(|ui| {
+            if let Some(model_name) = &self.model_name {
+                ui.label(format!("Model: {model_name}"));
+            } else {
+                ui.label("Model: --");
             }
-            ConnectionStatus::Error(msg) => {
-                ui.colored_label(egui::Color32::RED, format!("Error: {msg}"));
-                if let Some(idx) = self.selected_device_index {
-                    if ui.button("Retry").clicked() {
-                        self.cmd_tx.unbounded_send(OutboundFrame::Connect(idx)).ok();
-                    }
-                }
+            if let Some(firmware_version) = &self.firmware_version {
+                ui.label(format!("Firmware: v{firmware_version}"));
+            } else {
+                ui.label("Firmware: --");
             }
         });
     }
@@ -268,17 +299,17 @@ impl MainApp {
         ui.heading("Control");
         ui.label("Device Mode:");
         egui::ComboBox::from_id_salt("device_mode_selector")
-            .selected_text(self.current_device_mode.to_string())
+            .selected_text(self.selected_device_mode.to_string())
             .show_ui(ui, |ui| {
                 for mode in [
                     device::DeviceMode::DischargeConstantCurrent,
                     device::DeviceMode::DischargeConstantPower,
                     device::DeviceMode::ChargeConstantVoltage,
                 ] {
-                    ui.selectable_value(&mut self.current_device_mode, mode, mode.to_string());
+                    ui.selectable_value(&mut self.selected_device_mode, mode, mode.to_string());
                 }
             });
-        match self.current_device_mode {
+        match self.selected_device_mode {
             device::DeviceMode::DischargeConstantCurrent => {
                 ui.label("Discharge Current:");
                 ui.add(
@@ -316,7 +347,7 @@ impl MainApp {
                     } else {
                         if ui
                             .add_enabled(has_live_voltage(self), egui::Button::new("Start"))
-                            .on_disabled_hover_text("Connect device to battery first")
+                            .on_disabled_hover_text("Connect the device to a battery first")
                             .clicked()
                         {
                             self.cmd_tx
@@ -484,17 +515,22 @@ impl eframe::App for MainApp {
             });
         });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::Panel::left("left_panel").show_inside(ui, |ui| {
             self.usb_ui(ui);
-            self.live_data_ui(ui);
-            if self.status == ConnectionStatus::Connected {
-                self.control_ui(ui);
-            }
-            self.plot_ui(ui);
+            ui.push_id("control_section", |ui| {
+                if self.status == ConnectionStatus::Connected {
+                    self.live_data_ui(ui);
+                    self.control_ui(ui);
+                }
+            });
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 powered_by_egui_and_eframe(ui);
                 egui::warn_if_debug_build(ui);
             });
+        });
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.plot_ui(ui);
         });
     }
 }

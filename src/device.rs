@@ -195,7 +195,8 @@ enum StatusReportType {
 
 #[derive(Clone, Debug)]
 pub struct FirmwareReport {
-    pub command_byte: u8,
+    pub device_mode: DeviceMode,
+    pub in_progress: bool,
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
@@ -310,12 +311,28 @@ impl TryFrom<&[u8]> for InboundFrame {
                         value.len()
                     ));
                 }
+                let in_progress =
+                    command_byte == StatusReportType::ChargeConstantCurrentOnFirmwareReport as u8
+                        || command_byte == StatusReportType::DischargeConstantPowerOnFirmwareReport as u8
+                        || command_byte == StatusReportType::DischargeConstantCurrentOnFirmwareReport as u8;
+                let device_mode = if command_byte == StatusReportType::ChargeConstantCurrentOnFirmwareReport as u8
+                    || command_byte == StatusReportType::ChargeConstantCurrentOffFirmwareReport as u8
+                {
+                    DeviceMode::ChargeConstantVoltage
+                } else if command_byte == StatusReportType::DischargeConstantPowerOnFirmwareReport as u8
+                    || command_byte == StatusReportType::DischargeConstantPowerOffFirmwareReport as u8
+                {
+                    DeviceMode::DischargeConstantPower
+                } else {
+                    DeviceMode::DischargeConstantCurrent
+                };
                 let version = decode_base240(payload[9], payload[10]);
                 let major = version / 100;
                 let minor = (version % 100) / 10;
                 let patch = version % 10;
                 return Ok(InboundFrame::FirmwareReport(FirmwareReport {
-                    command_byte,
+                    device_mode,
+                    in_progress,
                     current_ma: decode_base240(payload[1], payload[2]) * 10,
                     voltage_mv: decode_base240(payload[3], payload[4]),
                     milli_ampere_hours: decode_base240(payload[5], payload[6]),
