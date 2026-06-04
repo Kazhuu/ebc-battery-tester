@@ -116,6 +116,13 @@ impl MainApp {
                 DeviceEvent::DevicesUpdated(devices) => {
                     log::info!("Available devices updated: {:?}", devices);
                     self.available_devices = devices;
+                    if self.available_devices.len() == 1 {
+                        self.selected_device_index = Some(0);
+                    } else if let Some(selected_index) = self.selected_device_index {
+                        if selected_index >= self.available_devices.len() {
+                            self.selected_device_index = None;
+                        }
+                    }
                 }
                 DeviceEvent::Frame(frame) => {
                     log::info!("{:?}", DeviceEvent::Frame(frame.clone()));
