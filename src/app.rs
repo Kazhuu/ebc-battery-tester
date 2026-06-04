@@ -123,7 +123,6 @@ impl MainApp {
                                 firmware_report_struct.milli_ampere_hours;
                             self.firmware_version = Some(firmware_report_struct.firmware_version);
                             self.model_name = Some(firmware_report_struct.device_type);
-                            ctx.request_repaint();
                         }
                         device::InboundFrame::ChargeReport(cccv_report_struct) => {
                             self.mode_on = cccv_report_struct.in_progress;
@@ -142,7 +141,6 @@ impl MainApp {
                                     .unwrap_or(0.0),
                                 self.live_current_ma as f64 / 1000.0,
                             ));
-                            ctx.request_repaint();
                         }
                         device::InboundFrame::DischargeConstantCurrentReport(
                             discharge_report_struct,
@@ -152,7 +150,6 @@ impl MainApp {
                             self.live_current_ma = discharge_report_struct.current_ma;
                             self.live_milli_ampere_hours =
                                 discharge_report_struct.milli_ampere_hours;
-                            ctx.request_repaint();
                         }
                         device::InboundFrame::DischargeConstantPowerReport(
                             discharge_report_struct,
@@ -162,7 +159,6 @@ impl MainApp {
                             self.live_current_ma = discharge_report_struct.current_ma;
                             self.live_milli_ampere_hours =
                                 discharge_report_struct.milli_ampere_hours;
-                            ctx.request_repaint();
                         }
                         _ => {}
                     }
