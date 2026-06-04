@@ -1,13 +1,13 @@
 use crate::device;
 use crate::usb;
 use device::{ConnectionStatus, DeviceEvent, OutboundFrame};
-use futures::channel::mpsc;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use egui_plot::Legend;
 use egui_plot::Line;
 use egui_plot::Plot;
 use egui_plot::PlotPoint;
 use egui_plot::PlotPoints;
+use futures::channel::mpsc;
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
@@ -119,7 +119,8 @@ impl MainApp {
                         device::InboundFrame::FirmwareReport(firmware_report_struct) => {
                             self.live_voltage_mv = firmware_report_struct.voltage_mv;
                             self.live_current_ma = firmware_report_struct.current_ma;
-                            self.live_milli_ampere_hours = firmware_report_struct.milli_ampere_hours;
+                            self.live_milli_ampere_hours =
+                                firmware_report_struct.milli_ampere_hours;
                             self.firmware_version = Some(firmware_report_struct.firmware_version);
                             self.model_name = Some(firmware_report_struct.device_type);
                             ctx.request_repaint();
@@ -143,18 +144,24 @@ impl MainApp {
                             ));
                             ctx.request_repaint();
                         }
-                        device::InboundFrame::DischargeConstantCurrentReport(discharge_report_struct) => {
+                        device::InboundFrame::DischargeConstantCurrentReport(
+                            discharge_report_struct,
+                        ) => {
                             self.mode_on = discharge_report_struct.in_progress;
                             self.live_voltage_mv = discharge_report_struct.voltage_mv;
                             self.live_current_ma = discharge_report_struct.current_ma;
-                            self.live_milli_ampere_hours = discharge_report_struct.milli_ampere_hours;
+                            self.live_milli_ampere_hours =
+                                discharge_report_struct.milli_ampere_hours;
                             ctx.request_repaint();
                         }
-                        device::InboundFrame::DischargeConstantPowerReport(discharge_report_struct) => {
+                        device::InboundFrame::DischargeConstantPowerReport(
+                            discharge_report_struct,
+                        ) => {
                             self.mode_on = discharge_report_struct.in_progress;
                             self.live_voltage_mv = discharge_report_struct.voltage_mv;
                             self.live_current_ma = discharge_report_struct.current_ma;
-                            self.live_milli_ampere_hours = discharge_report_struct.milli_ampere_hours;
+                            self.live_milli_ampere_hours =
+                                discharge_report_struct.milli_ampere_hours;
                             ctx.request_repaint();
                         }
                         _ => {}
@@ -170,25 +177,33 @@ impl MainApp {
             if let Some(model_name) = &self.model_name {
                 ui.label(format!("Model: {model_name}"));
             } else {
-                ui.label("Model: N/A");
+                ui.label("Model: --");
+            }
+            if let Some(firmware_version) = &self.firmware_version {
+                ui.label(format!("Firmware: v{firmware_version}"));
+            } else {
+                ui.label("Firmware: --");
             }
         });
         ui.horizontal(|ui| {
-            if let Some(firmware_version) = &self.firmware_version {
-                ui.label(format!("Firmware Version: {firmware_version}"));
+            ui.label("Status: ");
+            if self.mode_on {
+                ui.colored_label(ui.visuals().warn_fg_color, "Running");
             } else {
-                ui.label("Firmware Version: N/A");
+                ui.label("Idle");
             }
         });
         ui.horizontal(|ui| {
             ui.label(format!("{:.3} V", self.live_voltage_mv as f32 / 1000.0));
             ui.label(format!("{:.2} A", self.live_current_ma as f32 / 1000.0));
             ui.label(format!("{:.2} mAh", self.live_milli_ampere_hours));
+            if !has_live_voltage(self) {
+                ui.colored_label(ui.visuals().error_fg_color, "Connect the device to a battery");
+            }
         });
     }
 
     fn usb_ui(&mut self, ui: &mut egui::Ui) {
-        ui.separator();
         ui.heading("USB Device");
 
         let device_labels: Vec<String> = self
@@ -296,27 +311,29 @@ impl MainApp {
                     .suffix(" min")
                     .text("Indefinite if 0"),
                 );
-                if self.mode_on {
-                    if ui.button("Stop").clicked() {
-                        self.cmd_tx.unbounded_send(OutboundFrame::Stop).ok();
-                        self.mode_on = false;
+                ui.horizontal(|ui| {
+                    if self.mode_on {
+                        if ui.button("Stop").clicked() {
+                            self.cmd_tx.unbounded_send(OutboundFrame::Stop).ok();
+                            self.mode_on = false;
+                        }
+                    } else {
+                        if ui
+                            .add_enabled(has_live_voltage(self), egui::Button::new("Start"))
+                            .on_disabled_hover_text("Connect device to battery first")
+                            .clicked()
+                        {
+                            self.cmd_tx
+                                .unbounded_send(OutboundFrame::StartConstantCurrentDischarge(
+                                    (self.discharge_current * 1000.0) as u16,
+                                    (self.discharge_cutoff_voltage * 1000.0) as u16,
+                                    self.discharge_time,
+                                ))
+                                .ok();
+                            self.mode_on = true;
+                        }
                     }
-                } else {
-                    if ui
-                        .add_enabled(has_live_voltage(self), egui::Button::new("Start"))
-                        .on_disabled_hover_text("Connect device to battery first")
-                        .clicked()
-                    {
-                        self.cmd_tx
-                            .unbounded_send(OutboundFrame::StartConstantCurrentDischarge(
-                                (self.discharge_current * 1000.0) as u16,
-                                (self.discharge_cutoff_voltage * 1000.0) as u16,
-                                self.discharge_time,
-                            ))
-                            .ok();
-                        self.mode_on = true;
-                    }
-                }
+                });
             }
             device::DeviceMode::DischargeConstantPower => {
                 ui.label("Discharge Power:");
@@ -425,15 +442,26 @@ impl MainApp {
 
     fn plot_ui(&mut self, ui: &mut egui::Ui) {
         let label_formatter = |_s: &str, val: &PlotPoint| {
-            format!("{:.2} s: {:.3} V, {:.2} A", val.x, val.y, self.live_current_ma as f64 / 1000.0)
+            format!(
+                "{:.2} s: {:.3} V, {:.2} A",
+                val.x,
+                val.y,
+                self.live_current_ma as f64 / 1000.0
+            )
         };
 
         Plot::new("live_data_plot")
             .legend(Legend::default())
             .label_formatter(label_formatter)
             .show(ui, |plot_ui| {
-                plot_ui.line(Line::new("Voltage", PlotPoints::Borrowed(&self.voltage_points)).name("Voltage"));
-                plot_ui.line(Line::new("Current", PlotPoints::Borrowed(&self.amperes_points)).name("Current"));
+                plot_ui.line(
+                    Line::new("Voltage", PlotPoints::Borrowed(&self.voltage_points))
+                        .name("Voltage"),
+                );
+                plot_ui.line(
+                    Line::new("Current", PlotPoints::Borrowed(&self.amperes_points))
+                        .name("Current"),
+                );
             });
     }
 }
