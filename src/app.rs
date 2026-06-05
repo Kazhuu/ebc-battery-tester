@@ -110,22 +110,22 @@ impl MainApp {
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
                 DeviceEvent::StatusChanged(status) => {
-                    log::info!("Device status changed: {:?}", status);
+                    log::info!("Device status changed: {status:?}");
                     self.status = status;
                 }
                 DeviceEvent::DevicesUpdated(devices) => {
-                    log::info!("Available devices updated: {:?}", devices);
+                    log::info!("Available devices updated: {devices:?}");
                     self.available_devices = devices;
                     if self.available_devices.len() == 1 {
                         self.selected_device_index = Some(0);
-                    } else if let Some(selected_index) = self.selected_device_index {
-                        if selected_index >= self.available_devices.len() {
-                            self.selected_device_index = None;
-                        }
+                    } else if let Some(selected_index) = self.selected_device_index
+                        && selected_index >= self.available_devices.len()
+                    {
+                        self.selected_device_index = None;
                     }
                 }
                 DeviceEvent::Frame(frame) => {
-                    log::info!("{:?}", DeviceEvent::Frame(frame.clone()));
+                    log::info!("Received frame: {frame:?}");
                     match frame {
                         device::InboundFrame::FirmwareReport(firmware_report_struct) => {
                             self.current_device_mode = Some(firmware_report_struct.device_mode);
@@ -253,10 +253,10 @@ impl MainApp {
                 });
             match &self.status {
                 ConnectionStatus::Disconnected => {
-                    if let Some(idx) = self.selected_device_index {
-                        if ui.button("Connect").clicked() {
-                            self.cmd_tx.unbounded_send(OutboundFrame::Connect(idx)).ok();
-                        }
+                    if let Some(idx) = self.selected_device_index
+                        && ui.button("Connect").clicked()
+                    {
+                        self.cmd_tx.unbounded_send(OutboundFrame::Connect(idx)).ok();
                     }
                 }
                 ConnectionStatus::Connecting => {
@@ -271,17 +271,17 @@ impl MainApp {
                 ConnectionStatus::Error(msg) => {
                     // TODO: Show error somewhere else.
                     ui.colored_label(egui::Color32::RED, format!("Error: {msg}"));
-                    if let Some(idx) = self.selected_device_index {
-                        if ui.button("Retry").clicked() {
-                            self.cmd_tx.unbounded_send(OutboundFrame::Connect(idx)).ok();
-                        }
+                    if let Some(idx) = self.selected_device_index
+                        && ui.button("Retry").clicked()
+                    {
+                        self.cmd_tx.unbounded_send(OutboundFrame::Connect(idx)).ok();
                     }
                 }
             }
         });
     }
 
-    fn live_data_ui(&mut self, ui: &mut egui::Ui) {
+    fn live_data_ui(&self, ui: &mut egui::Ui) {
         ui.separator();
         ui.heading("Live Data");
         ui.horizontal(|ui| {
@@ -308,8 +308,7 @@ impl MainApp {
                         ui.visuals().text_color()
                     },
                     &format!(
-                        "{}{}",
-                        current_device_mode.to_string(),
+                        "{current_device_mode}{}",
                         if self.mode_on { " (On)" } else { " (Off)" }
                     ),
                 );

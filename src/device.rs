@@ -301,8 +301,7 @@ impl TryFrom<&[u8]> for InboundFrame {
                 || x == StatusReportType::DischargeConstantPowerOnFirmwareReport as u8
                 || x == StatusReportType::DischargeConstantPowerOffFirmwareReport as u8
                 || x == StatusReportType::DischargeConstantCurrentOnFirmwareReport as u8
-                || x == StatusReportType::DischargeConstantCurrentOffFirmwareReport as u8
-                =>
+                || x == StatusReportType::DischargeConstantCurrentOffFirmwareReport as u8 =>
             {
                 if value.len() != MAX_FRAME_SIZE {
                     return Err(format!(
@@ -311,16 +310,22 @@ impl TryFrom<&[u8]> for InboundFrame {
                         value.len()
                     ));
                 }
-                let in_progress =
-                    command_byte == StatusReportType::ChargeConstantCurrentOnFirmwareReport as u8
-                        || command_byte == StatusReportType::DischargeConstantPowerOnFirmwareReport as u8
-                        || command_byte == StatusReportType::DischargeConstantCurrentOnFirmwareReport as u8;
-                let device_mode = if command_byte == StatusReportType::ChargeConstantCurrentOnFirmwareReport as u8
-                    || command_byte == StatusReportType::ChargeConstantCurrentOffFirmwareReport as u8
+                let in_progress = command_byte
+                    == StatusReportType::ChargeConstantCurrentOnFirmwareReport as u8
+                    || command_byte
+                        == StatusReportType::DischargeConstantPowerOnFirmwareReport as u8
+                    || command_byte
+                        == StatusReportType::DischargeConstantCurrentOnFirmwareReport as u8;
+                let device_mode = if command_byte
+                    == StatusReportType::ChargeConstantCurrentOnFirmwareReport as u8
+                    || command_byte
+                        == StatusReportType::ChargeConstantCurrentOffFirmwareReport as u8
                 {
                     DeviceMode::ChargeConstantVoltage
-                } else if command_byte == StatusReportType::DischargeConstantPowerOnFirmwareReport as u8
-                    || command_byte == StatusReportType::DischargeConstantPowerOffFirmwareReport as u8
+                } else if command_byte
+                    == StatusReportType::DischargeConstantPowerOnFirmwareReport as u8
+                    || command_byte
+                        == StatusReportType::DischargeConstantPowerOffFirmwareReport as u8
                 {
                     DeviceMode::DischargeConstantPower
                 } else {
@@ -345,7 +350,8 @@ impl TryFrom<&[u8]> for InboundFrame {
             }
             x if x == StatusReportType::ChargeConstantCurrentOnReport as u8
                 || x == StatusReportType::ChargeConstantCurrentOffReport as u8
-                || x == StatusReportType::ChargeConstantCurrentEnd as u8 => {
+                || x == StatusReportType::ChargeConstantCurrentEnd as u8 =>
+            {
                 if value.len() != MAX_FRAME_SIZE {
                     return Err(format!(
                         "Invalid frame length for ChargeConstantCurrentReport: expected {}, got {}",
@@ -355,7 +361,8 @@ impl TryFrom<&[u8]> for InboundFrame {
                 }
                 let command_byte = payload[0];
                 return Ok(InboundFrame::ChargeReport(ChargeReport {
-                    in_progress: command_byte == StatusReportType::ChargeConstantCurrentOnReport as u8,
+                    in_progress: command_byte
+                        == StatusReportType::ChargeConstantCurrentOnReport as u8,
                     current_ma: decode_base240(payload[1], payload[2]) * 10,
                     voltage_mv: decode_base240(payload[3], payload[4]),
                     milli_ampere_hours: decode_base240(payload[5], payload[6]),
@@ -380,7 +387,8 @@ impl TryFrom<&[u8]> for InboundFrame {
                 let command_byte = payload[0];
                 return Ok(InboundFrame::DischargeConstantCurrentReport(
                     DischargeConstantCurrentReport {
-                        in_progress: command_byte == StatusReportType::DischargeConstantCurrentOnReport as u8,
+                        in_progress: command_byte
+                            == StatusReportType::DischargeConstantCurrentOnReport as u8,
                         current_ma: decode_base240(payload[1], payload[2]) * 10,
                         voltage_mv: decode_base240(payload[3], payload[4]),
                         milli_ampere_hours: decode_base240(payload[5], payload[6]),
@@ -406,7 +414,8 @@ impl TryFrom<&[u8]> for InboundFrame {
                 let command_byte = payload[0];
                 return Ok(InboundFrame::DischargeConstantPowerReport(
                     DischargeConstantPowerReport {
-                        in_progress: command_byte == StatusReportType::DischargeConstantPowerOnReport as u8,
+                        in_progress: command_byte
+                            == StatusReportType::DischargeConstantPowerOnReport as u8,
                         current_ma: decode_base240(payload[1], payload[2]) * 10,
                         voltage_mv: decode_base240(payload[3], payload[4]),
                         milli_ampere_hours: decode_base240(payload[5], payload[6]),
