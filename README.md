@@ -5,17 +5,20 @@ This project is WIP!
 Cross-platform desktop and browser application to control ZTE Tech EBC-A20
 battery tester.
 
+The deployed web app is available at
+[mauri.codes/ebc-battery-tester](https://mauri.codes/ebc-battery-tester).
+
 The app is built with Rust using egui and eframe.
 
 ## Important Notes
 
-The browser version uses WebUSB to communicate with the device. Only the USB
-cable that ships with the device is supported. The cable has a built-in CH340
-serial chip, even though the device end is a mini USB plug, so any regular mini
-USB cable will not work.
+The browser version uses WebUSB to communicate with the device. WebUSB is only
+supported on Chrome, Edge and Opera; for example, the web app will not work with
+Firefox.
 
-The CH340 chip must be configured with the correct settings before use. WebUSB
-only works in Chrome, Edge, and Opera.
+Only the USB cable that ships with the device is
+supported. The cable has a built-in CH340 serial chip, even though the device
+end is a mini USB plug, so any regular mini USB cable will not work.
 
 ## Testing locally
 
@@ -26,6 +29,7 @@ only works in Chrome, Edge, and Opera.
 You can compile your app to [WASM](https://en.wikipedia.org/wiki/WebAssembly) and publish it as a web page.
 
 We use [Trunk](https://trunkrs.dev/) to build for web target.
+
 1. Install the required target with `rustup target add wasm32-unknown-unknown`.
 2. Install Trunk with `cargo install --locked trunk`.
 3. Run `trunk serve` to build and serve on `http://127.0.0.1:8080`. Trunk will rebuild automatically if you edit the project.
@@ -34,27 +38,38 @@ We use [Trunk](https://trunkrs.dev/) to build for web target.
 > `assets/sw.js` script will try to cache our app, and loads the cached version when it cannot connect to server allowing your app to work offline (like PWA).
 > appending `#dev` to `index.html` will skip this caching, allowing us to load the latest builds during development.
 
-## Web Deploy
+## Access USB Device on Browser
 
-1. Just run `trunk build --release`.
-2. It will generate a `dist` directory as a "static html" website
-3. Upload the `dist` directory to any of the numerous free hosting websites including [GitHub Pages](https://docs.github.com/en/free-pro-team@latest/github/working-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
-4. we already provide a workflow that auto-deploys our app to GitHub pages if you enable it.
-> To enable Github Pages, you need to go to Repository -> Settings -> Pages -> Source -> set to `gh-pages` branch and `/` (root).
->
-> If `gh-pages` is not available in `Source`, just create and push a branch called `gh-pages` and it should be available.
->
-> If you renamed the `main` branch to something else (say you re-initialized the repository with `master` as the initial branch), be sure to edit the github workflows `.github/workflows/pages.yml` file to reflect the change
-> ```yml
-> on:
->   push:
->     branches:
->       - <branch name>
-> ```
+By default WebUSB cannot access the device from the browser as OS driver has
+already claimed the device, locking the browser out. In order to use WebUSB, you
+need to do additional steps. Read the steps for your OS below.
 
-## Linux WebUSB udev Rule
+### Windows
 
-When you plug in the USB cable, inux `ch341` driver will claim the USB device
+On Windows you most likely installed the driver that came with the original app.
+This driver will claim the device when you plug in the USB cable. Hence the
+browser will not be able to access the device. You need to change the driver
+with more generic WinUSB driver. When you do this, the COM port will not appear
+in the original Windows software anymore. To return the old behavior, you can
+always install the original manufacturer driver using the software bundled
+with the Windows app.
+
+To change the driver on Windows:
+
+1. Download [Zadig](https://zadig.akeo.ie/) and run it.
+2. In the menu, click `Options` and ensure `List All Devices` is checked.
+3. From the dropdown select `USB Serial`.
+4. On the right `Target Driver`, ensure WinUSB is selected, see the screenshot below.
+5. Click `Replace Driver`.
+
+![Zadig Windows](images/zadig-windows.png)
+
+Unplug and plug the USB cable back to the machine. You should now be able to
+connect to the device using WebUSB.
+
+### Linux
+
+When you plug in the USB cable, Linux `ch341` driver will claim the USB device
 and you cannot connect to it using WebUSB anymore. You need to unbind it first.
 You can do one time unbind with following command. This will work until you plug
 in the USB cable again.
@@ -64,7 +79,7 @@ sudo sh -c 'echo "1-2.3:1.0" > /sys/bus/usb/drivers/ch341/unbind'
 ```
 
 If you want to automatically unbind this when the cable is plugged in, you can
-add following udev rule
+add the following udev rule
 
 ```bash
 sudo tee /etc/udev/rules.d/99-ebc-tester.rules << 'EOF'
@@ -82,7 +97,9 @@ Then reload the udev rules with
 sudo udevadm control --reload-rules
 ```
 
-Now you should be to connect to the serial port with WebUSB.
+Now you should be able to connect to the serial port with WebUSB.
+
+To restore the original behavior, just remove the udev rule added above.
 
 ## Important Resources
 
