@@ -103,6 +103,16 @@ We use [Trunk](https://trunkrs.dev/) to build for web target.
 > `assets/sw.js` script will try to cache our app, and loads the cached version when it cannot connect to server allowing your app to work offline (like PWA).
 > appending `#dev` to `index.html` will skip this caching, allowing us to load the latest builds during development.
 
+### CI Checks
+
+To run all CI checks locally at once, use the provided script
+
+```bash
+./check.sh
+```
+
+This runs cargo check, formatting, Clippy, tests and a Trunk WASM build.
+
 ### Rustfmt
 
 This project uses rustfmt for code formatting. There is also a CI check that
