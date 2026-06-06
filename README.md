@@ -20,24 +20,6 @@ Only the USB cable that ships with the device is
 supported. The cable has a built-in CH340 serial chip, even though the device
 end is a mini USB plug, so any regular mini USB cable will not work.
 
-## Testing locally
-
-`cargo run --release`
-
-## Web Locally
-
-You can compile your app to [WASM](https://en.wikipedia.org/wiki/WebAssembly) and publish it as a web page.
-
-We use [Trunk](https://trunkrs.dev/) to build for web target.
-
-1. Install the required target with `rustup target add wasm32-unknown-unknown`.
-2. Install Trunk with `cargo install --locked trunk`.
-3. Run `trunk serve` to build and serve on `http://127.0.0.1:8080`. Trunk will rebuild automatically if you edit the project.
-4. Open `http://127.0.0.1:8080/index.html#dev` in a browser. See the warning below.
-
-> `assets/sw.js` script will try to cache our app, and loads the cached version when it cannot connect to server allowing your app to work offline (like PWA).
-> appending `#dev` to `index.html` will skip this caching, allowing us to load the latest builds during development.
-
 ## Access USB Device on Browser
 
 By default WebUSB cannot access the device from the browser as OS driver has
@@ -103,13 +85,46 @@ To restore the original behavior, just remove the udev rule added above.
 
 ## Development
 
-### Clippy
+### Testing locally
 
-This project uses Clippy linter. There is also a CI checking that there is no
-warnings at all. Run Clippy locally with
+`cargo run --release`
+
+### Web Locally
+
+You can compile your app to [WASM](https://en.wikipedia.org/wiki/WebAssembly) and publish it as a web page.
+
+We use [Trunk](https://trunkrs.dev/) to build for web target.
+
+1. Install the required target with `rustup target add wasm32-unknown-unknown`.
+2. Install Trunk with `cargo install --locked trunk`.
+3. Run `trunk serve` to build and serve on `http://127.0.0.1:8080`. Trunk will rebuild automatically if you edit the project.
+4. Open `http://127.0.0.1:8080/index.html#dev` in a browser. See the warning below.
+
+> `assets/sw.js` script will try to cache our app, and loads the cached version when it cannot connect to server allowing your app to work offline (like PWA).
+> appending `#dev` to `index.html` will skip this caching, allowing us to load the latest builds during development.
+
+### Rustfmt
+
+This project uses rustfmt for code formatting. There is also a CI check that
+enforces correct formatting. Run the formatter locally with
 
 ```bash
-cargo clippy --target wasm32-unknown-unknow
+cargo fmt
+```
+
+To only check without modifying files, run
+
+```bash
+cargo fmt -- --check
+```
+
+### Clippy
+
+This project uses Clippy linter. There is also a CI check that fails on any
+warnings. Run Clippy locally with
+
+```bash
+cargo clippy --target wasm32-unknown-unknown
 ```
 
 ## Important Resources
