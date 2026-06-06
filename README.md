@@ -101,6 +101,17 @@ Now you should be able to connect to the serial port with WebUSB.
 
 To restore the original behavior, just remove the udev rule added above.
 
+## Development
+
+### Clippy
+
+This project uses Clippy linter. There is also a CI checking that there is no
+warnings at all. Run Clippy locally with
+
+```bash
+cargo clippy --target wasm32-unknown-unknow
+```
+
 ## Important Resources
 
 * Documentation of the communication protocol used:
