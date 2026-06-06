@@ -106,6 +106,90 @@ impl MainApp {
         app
     }
 
+    fn handle_firmware_report(&mut self, firmware_report_struct: device::FirmwareReport) {
+        self.current_device_mode = Some(firmware_report_struct.device_mode);
+        self.mode_on = firmware_report_struct.in_progress;
+        self.live_voltage_mv = firmware_report_struct.voltage_mv;
+        self.live_current_ma = firmware_report_struct.current_ma;
+        self.live_milli_ampere_hours = firmware_report_struct.milli_ampere_hours;
+        self.firmware_version = Some(firmware_report_struct.firmware_version);
+        self.model_name = Some(firmware_report_struct.device_type);
+    }
+
+    fn handle_charge_report(&mut self, charge_report: device::ChargeReport, ctx: &egui::Context) {
+        self.current_device_mode = Some(device::DeviceMode::ChargeConstantVoltage);
+        self.mode_on = charge_report.in_progress;
+        self.live_voltage_mv = charge_report.voltage_mv;
+        self.live_current_ma = charge_report.current_ma;
+        self.live_milli_ampere_hours = charge_report.milli_ampere_hours;
+        if self.mode_on {
+            self.voltage_points.push(PlotPoint::new(
+                self.mode_start_time
+                    .map(|start| ctx.input(|ui| ui.time) - start)
+                    .unwrap_or(0.0),
+                self.live_voltage_mv as f64 / 1000.0,
+            ));
+            self.amperes_points.push(PlotPoint::new(
+                self.mode_start_time
+                    .map(|start| ctx.input(|ui| ui.time) - start)
+                    .unwrap_or(0.0),
+                self.live_current_ma as f64 / 1000.0,
+            ));
+        }
+    }
+
+    fn handle_discharge_constant_current_report(
+        &mut self,
+        discharge_report_struct: &device::DischargeConstantCurrentReport,
+        ctx: &egui::Context,
+    ) {
+        self.current_device_mode = Some(device::DeviceMode::DischargeConstantCurrent);
+        self.mode_on = discharge_report_struct.in_progress;
+        self.live_voltage_mv = discharge_report_struct.voltage_mv;
+        self.live_current_ma = discharge_report_struct.current_ma;
+        self.live_milli_ampere_hours = discharge_report_struct.milli_ampere_hours;
+        if self.mode_on {
+            self.voltage_points.push(PlotPoint::new(
+                self.mode_start_time
+                    .map(|start| ctx.input(|ui| ui.time) - start)
+                    .unwrap_or(0.0),
+                self.live_voltage_mv as f64 / 1000.0,
+            ));
+            self.amperes_points.push(PlotPoint::new(
+                self.mode_start_time
+                    .map(|start| ctx.input(|ui| ui.time) - start)
+                    .unwrap_or(0.0),
+                self.live_current_ma as f64 / 1000.0,
+            ));
+        }
+    }
+
+    fn handle_discharge_constant_power_report(
+        &mut self,
+        discharge_report_struct: &device::DischargeConstantPowerReport,
+        ctx: &egui::Context,
+    ) {
+        self.current_device_mode = Some(device::DeviceMode::DischargeConstantPower);
+        self.mode_on = discharge_report_struct.in_progress;
+        self.live_voltage_mv = discharge_report_struct.voltage_mv;
+        self.live_current_ma = discharge_report_struct.current_ma;
+        self.live_milli_ampere_hours = discharge_report_struct.milli_ampere_hours;
+        if self.mode_on {
+            self.voltage_points.push(PlotPoint::new(
+                self.mode_start_time
+                    .map(|start| ctx.input(|ui| ui.time) - start)
+                    .unwrap_or(0.0),
+                self.live_voltage_mv as f64 / 1000.0,
+            ));
+            self.amperes_points.push(PlotPoint::new(
+                self.mode_start_time
+                    .map(|start| ctx.input(|ui| ui.time) - start)
+                    .unwrap_or(0.0),
+                self.live_current_ma as f64 / 1000.0,
+            ));
+        }
+    }
+
     fn consume_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
@@ -127,87 +211,27 @@ impl MainApp {
                 DeviceEvent::Frame(frame) => {
                     log::info!("Received frame: {frame:?}");
                     match frame {
-                        device::InboundFrame::FirmwareReport(firmware_report_struct) => {
-                            self.current_device_mode = Some(firmware_report_struct.device_mode);
-                            self.mode_on = firmware_report_struct.in_progress;
-                            self.live_voltage_mv = firmware_report_struct.voltage_mv;
-                            self.live_current_ma = firmware_report_struct.current_ma;
-                            self.live_milli_ampere_hours =
-                                firmware_report_struct.milli_ampere_hours;
-                            self.firmware_version = Some(firmware_report_struct.firmware_version);
-                            self.model_name = Some(firmware_report_struct.device_type);
+                        device::InboundFrame::FirmwareReport(firmware_report) => {
+                            self.handle_firmware_report(firmware_report);
                         }
-                        device::InboundFrame::ChargeReport(cccv_report_struct) => {
-                            self.current_device_mode =
-                                Some(device::DeviceMode::ChargeConstantVoltage);
-                            self.mode_on = cccv_report_struct.in_progress;
-                            self.live_voltage_mv = cccv_report_struct.voltage_mv;
-                            self.live_current_ma = cccv_report_struct.current_ma;
-                            self.live_milli_ampere_hours = cccv_report_struct.milli_ampere_hours;
-                            if self.mode_on {
-                                self.voltage_points.push(PlotPoint::new(
-                                    self.mode_start_time
-                                        .map(|start| ctx.input(|ui| ui.time) - start)
-                                        .unwrap_or(0.0),
-                                    self.live_voltage_mv as f64 / 1000.0,
-                                ));
-                                self.amperes_points.push(PlotPoint::new(
-                                    self.mode_start_time
-                                        .map(|start| ctx.input(|ui| ui.time) - start)
-                                        .unwrap_or(0.0),
-                                    self.live_current_ma as f64 / 1000.0,
-                                ));
-                            }
+                        device::InboundFrame::ChargeReport(charge_report) => {
+                            self.handle_charge_report(charge_report, ctx);
                         }
                         device::InboundFrame::DischargeConstantCurrentReport(
                             discharge_report_struct,
                         ) => {
-                            self.current_device_mode =
-                                Some(device::DeviceMode::DischargeConstantCurrent);
-                            self.mode_on = discharge_report_struct.in_progress;
-                            self.live_voltage_mv = discharge_report_struct.voltage_mv;
-                            self.live_current_ma = discharge_report_struct.current_ma;
-                            self.live_milli_ampere_hours =
-                                discharge_report_struct.milli_ampere_hours;
-                            if self.mode_on {
-                                self.voltage_points.push(PlotPoint::new(
-                                    self.mode_start_time
-                                        .map(|start| ctx.input(|ui| ui.time) - start)
-                                        .unwrap_or(0.0),
-                                    self.live_voltage_mv as f64 / 1000.0,
-                                ));
-                                self.amperes_points.push(PlotPoint::new(
-                                    self.mode_start_time
-                                        .map(|start| ctx.input(|ui| ui.time) - start)
-                                        .unwrap_or(0.0),
-                                    self.live_current_ma as f64 / 1000.0,
-                                ));
-                            }
+                            self.handle_discharge_constant_current_report(
+                                &discharge_report_struct,
+                                ctx,
+                            );
                         }
                         device::InboundFrame::DischargeConstantPowerReport(
                             discharge_report_struct,
                         ) => {
-                            self.current_device_mode =
-                                Some(device::DeviceMode::DischargeConstantPower);
-                            self.mode_on = discharge_report_struct.in_progress;
-                            self.live_voltage_mv = discharge_report_struct.voltage_mv;
-                            self.live_current_ma = discharge_report_struct.current_ma;
-                            self.live_milli_ampere_hours =
-                                discharge_report_struct.milli_ampere_hours;
-                            if self.mode_on {
-                                self.voltage_points.push(PlotPoint::new(
-                                    self.mode_start_time
-                                        .map(|start| ctx.input(|ui| ui.time) - start)
-                                        .unwrap_or(0.0),
-                                    self.live_voltage_mv as f64 / 1000.0,
-                                ));
-                                self.amperes_points.push(PlotPoint::new(
-                                    self.mode_start_time
-                                        .map(|start| ctx.input(|ui| ui.time) - start)
-                                        .unwrap_or(0.0),
-                                    self.live_current_ma as f64 / 1000.0,
-                                ));
-                            }
+                            self.handle_discharge_constant_power_report(
+                                &discharge_report_struct,
+                                ctx,
+                            );
                         }
                         _ => {}
                     }
@@ -307,7 +331,7 @@ impl MainApp {
                     } else {
                         ui.visuals().text_color()
                     },
-                    &format!(
+                    format!(
                         "{current_device_mode}{}",
                         if self.mode_on { " (On)" } else { " (Off)" }
                     ),
@@ -380,25 +404,24 @@ impl MainApp {
                             self.cmd_tx.unbounded_send(OutboundFrame::Stop).ok();
                             self.mode_on = false;
                         }
-                    } else {
-                        if ui
-                            .add_enabled(has_live_voltage(self), egui::Button::new("Start"))
-                            .on_disabled_hover_text("Connect the device to a battery first")
-                            .clicked()
-                        {
-                            self.cmd_tx
-                                .unbounded_send(OutboundFrame::StartConstantCurrentDischarge(
-                                    (self.discharge_current * 1000.0) as u16,
-                                    (self.discharge_cutoff_voltage * 1000.0) as u16,
-                                    self.discharge_time,
-                                ))
-                                .ok();
-                            self.mode_on = true;
-                            self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
-                            self.voltage_points.clear();
-                            self.amperes_points.clear();
-                        }
+                    } else if ui
+                        .add_enabled(has_live_voltage(self), egui::Button::new("Start"))
+                        .on_disabled_hover_text("Connect the device to a battery first")
+                        .clicked()
+                    {
+                        self.cmd_tx
+                            .unbounded_send(OutboundFrame::StartConstantCurrentDischarge(
+                                (self.discharge_current * 1000.0) as u16,
+                                (self.discharge_cutoff_voltage * 1000.0) as u16,
+                                self.discharge_time,
+                            ))
+                            .ok();
+                        self.mode_on = true;
+                        self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
+                        self.voltage_points.clear();
+                        self.amperes_points.clear();
                     }
+
                     if ui
                         .add_enabled(
                             has_live_voltage(self) && !self.mode_on,
@@ -453,24 +476,22 @@ impl MainApp {
                             self.cmd_tx.unbounded_send(OutboundFrame::Stop).ok();
                             self.mode_on = false;
                         }
-                    } else {
-                        if ui
-                            .add_enabled(has_live_voltage(self), egui::Button::new("Start"))
-                            .on_disabled_hover_text("Connect device to battery first")
-                            .clicked()
-                        {
-                            self.cmd_tx
-                                .unbounded_send(OutboundFrame::StartConstantPowerDischarge(
-                                    self.discharge_watts,
-                                    (self.discharge_cutoff_voltage * 1000.0) as u16,
-                                    self.discharge_time,
-                                ))
-                                .ok();
-                            self.mode_on = true;
-                            self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
-                            self.voltage_points.clear();
-                            self.amperes_points.clear();
-                        }
+                    } else if ui
+                        .add_enabled(has_live_voltage(self), egui::Button::new("Start"))
+                        .on_disabled_hover_text("Connect device to battery first")
+                        .clicked()
+                    {
+                        self.cmd_tx
+                            .unbounded_send(OutboundFrame::StartConstantPowerDischarge(
+                                self.discharge_watts,
+                                (self.discharge_cutoff_voltage * 1000.0) as u16,
+                                self.discharge_time,
+                            ))
+                            .ok();
+                        self.mode_on = true;
+                        self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
+                        self.voltage_points.clear();
+                        self.amperes_points.clear();
                     }
                     if ui
                         .add_enabled(
@@ -527,24 +548,22 @@ impl MainApp {
                             self.cmd_tx.unbounded_send(OutboundFrame::Stop).ok();
                             self.mode_on = false;
                         }
-                    } else {
-                        if ui
-                            .add_enabled(has_live_voltage(self), egui::Button::new("Start"))
-                            .on_disabled_hover_text("Connect device to battery first")
-                            .clicked()
-                        {
-                            self.cmd_tx
-                                .unbounded_send(OutboundFrame::StartConstantVoltageCharge(
-                                    (self.charge_current * 1000.0) as u16,
-                                    (self.charge_voltage * 1000.0) as u16,
-                                    (self.charge_cutoff_current * 1000.0) as u16,
-                                ))
-                                .ok();
-                            self.mode_on = true;
-                            self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
-                            self.voltage_points.clear();
-                            self.amperes_points.clear();
-                        }
+                    } else if ui
+                        .add_enabled(has_live_voltage(self), egui::Button::new("Start"))
+                        .on_disabled_hover_text("Connect device to battery first")
+                        .clicked()
+                    {
+                        self.cmd_tx
+                            .unbounded_send(OutboundFrame::StartConstantVoltageCharge(
+                                (self.charge_current * 1000.0) as u16,
+                                (self.charge_voltage * 1000.0) as u16,
+                                (self.charge_cutoff_current * 1000.0) as u16,
+                            ))
+                            .ok();
+                        self.mode_on = true;
+                        self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
+                        self.voltage_points.clear();
+                        self.amperes_points.clear();
                     }
                     if ui
                         .add_enabled(

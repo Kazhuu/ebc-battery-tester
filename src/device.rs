@@ -24,17 +24,17 @@ pub const AUTO_MODE_TIME_MAX_MINS: u16 = 10;
 
 // ZKETECH EBC model codes sent from the device.
 enum DeviceType {
-    EBC_A05 = 0x05,
-    EBC_A10H = 0x06,
-    EBC_A20 = 0x09,
+    EbcA05 = 0x05,
+    EbcA10H = 0x06,
+    EbcA20 = 0x09,
 }
 
 fn get_device_model_name(device_type_code: u8) -> String {
     match device_type_code {
-        x if x == DeviceType::EBC_A05 as u8 => "EBC-A05".to_string(),
-        x if x == DeviceType::EBC_A10H as u8 => "EBC-A10H".to_string(),
-        x if x == DeviceType::EBC_A20 as u8 => "EBC-A20".to_string(),
-        _ => format!("Unknown ({:#04x})", device_type_code),
+        x if x == DeviceType::EbcA05 as u8 => "EBC-A05".to_owned(),
+        x if x == DeviceType::EbcA10H as u8 => "EBC-A10H".to_owned(),
+        x if x == DeviceType::EbcA20 as u8 => "EBC-A20".to_owned(),
+        _ => format!("Unknown ({device_type_code:#04x})"),
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,9 +81,9 @@ pub enum DeviceMode {
 impl std::fmt::Display for DeviceMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DeviceMode::DischargeConstantCurrent => write!(f, "Discharge Constant Current"),
-            DeviceMode::DischargeConstantPower => write!(f, "Discharge Constant Power"),
-            DeviceMode::ChargeConstantVoltage => write!(f, "Charge Constant Voltage"),
+            Self::DischargeConstantCurrent => write!(f, "Discharge Constant Current"),
+            Self::DischargeConstantPower => write!(f, "Discharge Constant Power"),
+            Self::ChargeConstantVoltage => write!(f, "Charge Constant Voltage"),
         }
     }
 }
@@ -284,9 +284,7 @@ impl TryFrom<&[u8]> for InboundFrame {
         // So we log the checksum error instead.
         if calculated_checksum != checksum {
             log::warn!(
-                "Invalid checksum: expected {:#04x}, got {:#04x}",
-                calculated_checksum,
-                checksum
+                "Invalid checksum: expected {calculated_checksum:#04x}, got {checksum:#04x}"
             );
         }
         let command_byte = payload[0];
@@ -335,18 +333,19 @@ impl TryFrom<&[u8]> for InboundFrame {
                 let major = version / 100;
                 let minor = (version % 100) / 10;
                 let patch = version % 10;
-                return Ok(InboundFrame::FirmwareReport(FirmwareReport {
+
+                Ok(Self::FirmwareReport(FirmwareReport {
                     device_mode,
                     in_progress,
                     current_ma: decode_base240(payload[1], payload[2]) * 10,
                     voltage_mv: decode_base240(payload[3], payload[4]),
                     milli_ampere_hours: decode_base240(payload[5], payload[6]),
                     unknown: decode_base240(payload[7], payload[8]),
-                    firmware_version: format!("{}.{}.{}", major, minor, patch),
+                    firmware_version: format!("{major}.{minor}.{patch}"),
                     unknown1: decode_base240(payload[11], payload[12]),
                     unknown2: decode_base240(payload[13], payload[14]),
                     device_type: get_device_model_name(payload[15]),
-                }));
+                }))
             }
             x if x == StatusReportType::ChargeConstantCurrentOnReport as u8
                 || x == StatusReportType::ChargeConstantCurrentOffReport as u8
@@ -360,7 +359,7 @@ impl TryFrom<&[u8]> for InboundFrame {
                     ));
                 }
                 let command_byte = payload[0];
-                return Ok(InboundFrame::ChargeReport(ChargeReport {
+                Ok(Self::ChargeReport(ChargeReport {
                     in_progress: command_byte
                         == StatusReportType::ChargeConstantCurrentOnReport as u8,
                     current_ma: decode_base240(payload[1], payload[2]) * 10,
@@ -371,7 +370,7 @@ impl TryFrom<&[u8]> for InboundFrame {
                     charge_voltage_mv: decode_base240(payload[11], payload[12]),
                     cutoff_current_ma: decode_base240(payload[13], payload[14]),
                     device_type: get_device_model_name(payload[15]),
-                }));
+                }))
             }
             x if x == StatusReportType::DischargeConstantCurrentOnReport as u8
                 || x == StatusReportType::DischargeConstantCurrentOffReport as u8
@@ -385,7 +384,7 @@ impl TryFrom<&[u8]> for InboundFrame {
                     ));
                 }
                 let command_byte = payload[0];
-                return Ok(InboundFrame::DischargeConstantCurrentReport(
+                Ok(Self::DischargeConstantCurrentReport(
                     DischargeConstantCurrentReport {
                         in_progress: command_byte
                             == StatusReportType::DischargeConstantCurrentOnReport as u8,
@@ -398,7 +397,7 @@ impl TryFrom<&[u8]> for InboundFrame {
                         cutoff_time_min: decode_base240(payload[13], payload[14]),
                         device_type: get_device_model_name(payload[15]),
                     },
-                ));
+                ))
             }
             x if x == StatusReportType::DischargeConstantPowerOnReport as u8
                 || x == StatusReportType::DischargeConstantPowerOffReport as u8
@@ -412,7 +411,7 @@ impl TryFrom<&[u8]> for InboundFrame {
                     ));
                 }
                 let command_byte = payload[0];
-                return Ok(InboundFrame::DischargeConstantPowerReport(
+                Ok(Self::DischargeConstantPowerReport(
                     DischargeConstantPowerReport {
                         in_progress: command_byte
                             == StatusReportType::DischargeConstantPowerOnReport as u8,
@@ -425,9 +424,9 @@ impl TryFrom<&[u8]> for InboundFrame {
                         cutoff_time_min: decode_base240(payload[13], payload[14]),
                         device_type: get_device_model_name(payload[15]),
                     },
-                ));
+                ))
             }
-            _ => return Err(format!("Unknown command byte: {command_byte:#04x}")),
+            _ => Err(format!("Unknown command byte: {command_byte:#04x}")),
         }
     }
 }
@@ -445,7 +444,7 @@ impl std::fmt::Debug for DeviceEvent {
             Self::StatusChanged(s) => f.debug_tuple("StatusChanged").field(s).finish(),
             Self::DevicesUpdated(d) => f.debug_tuple("DevicesUpdated").field(d).finish(),
             Self::Frame(frame) => {
-                write!(f, "Frame({:?})", frame)
+                write!(f, "Frame({frame:?})")
             }
         }
     }
@@ -454,7 +453,10 @@ impl std::fmt::Debug for DeviceEvent {
 // Encoding to prevent bytes > 240 in the byte stream, allowing 0xfa and 0xf8
 // to be safely used as SOF and EOF markers.
 fn encode_base240(value: u16) -> (u8, u8) {
-    debug_assert!(value < 0xf0 * 0xf0 + 0xf0);
+    debug_assert!(
+        value < 0xf0 * 0xf0 + 0xf0,
+        "Value too large to encode in base240: {value}"
+    );
     let h = (value / 0xf0) as u8;
     let l = (value % 0xf0) as u8;
     (h, l)
@@ -534,24 +536,19 @@ fn start_constant_current_discharge_command(
     cutoff_mv: u16,
     cutoff_time_min: u16,
 ) -> [u8; 10] {
-    if current_ma < MIN_DISCHARGE_CURRENT_MA || current_ma > MAX_DISCHARGE_CURRENT_MA {
-        panic!(
-            "Current must be between {}mA and {}mA",
-            MIN_DISCHARGE_CURRENT_MA, MAX_DISCHARGE_CURRENT_MA
-        );
-    }
-    if cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV {
-        panic!(
-            "Cutoff voltage must be between {}mV and {}mV",
-            MIN_VOLTAGE_MV, MAX_VOLTAGE_MV
-        );
-    }
-    if cutoff_time_min < MIN_CUTOFF_TIME_MIN || cutoff_time_min > MAX_CUTOFF_TIME_MIN {
-        panic!(
-            "Cutoff time must be between {} and {} minutes",
-            MIN_CUTOFF_TIME_MIN, MAX_CUTOFF_TIME_MIN
-        );
-    }
+    assert!(
+        !(current_ma < MIN_DISCHARGE_CURRENT_MA || current_ma > MAX_DISCHARGE_CURRENT_MA),
+        "Current must be between {MIN_DISCHARGE_CURRENT_MA}mA and {MAX_DISCHARGE_CURRENT_MA}mA"
+    );
+    assert!(
+        !(cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV),
+        "Cutoff voltage must be between {MIN_VOLTAGE_MV}mV and {MAX_VOLTAGE_MV}mV"
+    );
+    assert!(
+        (cutoff_time_min <= MAX_CUTOFF_TIME_MIN),
+        "Cutoff time must be between 0 and {MAX_CUTOFF_TIME_MIN} minutes"
+    );
+
     let (current_h, current_l) = encode_base240(current_ma / 10);
     let (cutoff_h, cutoff_l) = encode_base240(cutoff_mv / 10);
     let (time_h, time_l) = encode_base240(cutoff_time_min);
@@ -571,24 +568,19 @@ fn start_constant_power_discharge_command(
     cutoff_mv: u16,
     cutoff_time_min: u16,
 ) -> [u8; 10] {
-    if power_w < MIN_POWER_W || power_w > MAX_POWER_W {
-        panic!(
-            "Watts must be between {}W and {}W",
-            MIN_POWER_W, MAX_POWER_W
-        );
-    }
-    if cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV {
-        panic!(
-            "Cutoff voltage must be between {}mV and {}mV",
-            MIN_VOLTAGE_MV, MAX_VOLTAGE_MV
-        );
-    }
-    if cutoff_time_min < MIN_CUTOFF_TIME_MIN || cutoff_time_min > MAX_CUTOFF_TIME_MIN {
-        panic!(
-            "Cutoff time must be between {} and {} minutes",
-            MIN_CUTOFF_TIME_MIN, MAX_CUTOFF_TIME_MIN
-        );
-    }
+    assert!(
+        !(power_w < MIN_POWER_W || power_w > MAX_POWER_W),
+        "Watts must be between {MIN_POWER_W}W and {MAX_POWER_W}W"
+    );
+    assert!(
+        !(cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV),
+        "Cutoff voltage must be between {MIN_VOLTAGE_MV}mV and {MAX_VOLTAGE_MV}mV"
+    );
+    assert!(
+        (cutoff_time_min <= MAX_CUTOFF_TIME_MIN),
+        "Cutoff time must be between 0 and {MAX_CUTOFF_TIME_MIN} minutes"
+    );
+
     let (power_h, power_l) = encode_base240(power_w);
     let (cutoff_h, cutoff_l) = encode_base240(cutoff_mv / 10);
     let (time_h, time_l) = encode_base240(cutoff_time_min);
@@ -608,26 +600,20 @@ fn start_constant_voltage_charge_command(
     charge_voltage_mv: u16,
     cutoff_current_ma: u16,
 ) -> [u8; 10] {
-    if current_ma < MIN_CHARGE_CURRENT_MA || current_ma > MAX_CHARGE_CURRENT_MA {
-        panic!(
-            "Current must be between {}mA and {}mA",
-            MIN_CHARGE_CURRENT_MA, MAX_CHARGE_CURRENT_MA
-        );
-    }
-    if charge_voltage_mv < MIN_VOLTAGE_MV || charge_voltage_mv > MAX_VOLTAGE_MV {
-        panic!(
-            "Charge voltage must be between {}mV and {}mV",
-            MIN_VOLTAGE_MV, MAX_VOLTAGE_MV
-        );
-    }
-    if cutoff_current_ma < MIN_CHARGE_CUTOFF_CURRENT_MA
-        || cutoff_current_ma > MAX_CHARGE_CUTOFF_CURRENT_MA
-    {
-        panic!(
-            "Cutoff current must be between {}mA and {}mA",
-            MIN_CHARGE_CUTOFF_CURRENT_MA, MAX_CHARGE_CUTOFF_CURRENT_MA
-        );
-    }
+    assert!(
+        !(current_ma < MIN_CHARGE_CURRENT_MA || current_ma > MAX_CHARGE_CURRENT_MA),
+        "Current must be between {MIN_CHARGE_CURRENT_MA}mA and {MAX_CHARGE_CURRENT_MA}mA"
+    );
+    assert!(
+        !(charge_voltage_mv < MIN_VOLTAGE_MV || charge_voltage_mv > MAX_VOLTAGE_MV),
+        "Charge voltage must be between {MIN_VOLTAGE_MV}mV and {MAX_VOLTAGE_MV}mV"
+    );
+    assert!(
+        !(cutoff_current_ma < MIN_CHARGE_CUTOFF_CURRENT_MA
+            || cutoff_current_ma > MAX_CHARGE_CUTOFF_CURRENT_MA),
+        "Cutoff current must be between {MIN_CHARGE_CUTOFF_CURRENT_MA}mA and {MAX_CHARGE_CUTOFF_CURRENT_MA}mA"
+    );
+
     let (current_h, current_l) = encode_base240(current_ma / 10);
     let (charge_voltage_h, charge_voltage_l) = encode_base240(charge_voltage_mv / 10);
     let (cutoff_current_h, cutoff_current_l) = encode_base240(cutoff_current_ma / 10);
