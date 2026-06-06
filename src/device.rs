@@ -19,7 +19,9 @@ pub const MAX_VOLTAGE_MV: u16 = 30000;
 pub const MIN_CUTOFF_TIME_MIN: u16 = 0;
 pub const MAX_CUTOFF_TIME_MIN: u16 = 999;
 // Max minutes to wait between charge and discharge cycle.
+#[expect(unused)]
 pub const AUTO_MODE_TIME_MIN_MINS: u16 = 0;
+#[expect(unused)]
 pub const AUTO_MODE_TIME_MAX_MINS: u16 = 10;
 
 // ZKETECH EBC model codes sent from the device.
@@ -168,8 +170,10 @@ enum CommmandType {
     // TODO: Does this work?
     StopConstantCurrentDischarge = 0x08,
     // TODO: Not tested.
+    #[expect(unused)]
     AdjustDischargeConstantCurrent = 0x07,
     // TODO: Not tested.
+    #[expect(unused)]
     ChargeTimeQuery = 0x0A,
 }
 
@@ -200,10 +204,13 @@ pub struct FirmwareReport {
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
+    #[expect(unused)]
     pub unknown: u16,
     pub firmware_version: String,
     // Calibration parameters, offset and gain maybe?
+    #[expect(unused)]
     pub unknown1: u16, // Always 2988
+    #[expect(unused)]
     pub unknown2: u16, // Always 2087
     pub device_type: String,
 }
@@ -214,9 +221,13 @@ pub struct ChargeReport {
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
+    #[expect(unused)]
     pub unknown: u16,
+    #[expect(unused)]
     pub charge_current_ma: u16,
+    #[expect(unused)]
     pub charge_voltage_mv: u16,
+    #[expect(unused)]
     pub cutoff_current_ma: u16,
     pub device_type: String,
 }
@@ -227,9 +238,13 @@ pub struct DischargeConstantCurrentReport {
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
+    #[expect(unused)]
     pub unknown: u16,
+    #[expect(unused)]
     pub discharge_current_ma: u16,
+    #[expect(unused)]
     pub cutoff_voltage_mv: u16,
+    #[expect(unused)]
     pub cutoff_time_min: u16,
     pub device_type: String,
 }
@@ -240,27 +255,119 @@ pub struct DischargeConstantPowerReport {
     pub current_ma: u16,
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
+    #[expect(unused)]
     pub unknown: u16,
+    #[expect(unused)]
     pub discharge_power_w: u16,
+    #[expect(unused)]
     pub cutoff_voltage_mv: u16,
+    #[expect(unused)]
     pub cutoff_time_min: u16,
     pub device_type: String,
 }
 
 #[derive(Clone, Debug)]
 pub enum InboundFrame {
-    FirmwareReport(FirmwareReport),
-    DischargeConstantCurrentReport(DischargeConstantCurrentReport),
-    DischargeConstantPowerReport(DischargeConstantPowerReport),
-    ChargeReport(ChargeReport),
+    Firmware(FirmwareReport),
+    DischargeConstantCurrent(DischargeConstantCurrentReport),
+    DischargeConstantPower(DischargeConstantPowerReport),
+    Charge(ChargeReport),
+}
+
+impl InboundFrame {
+    fn construct_firmware_report(payload: &[u8]) -> Self {
+        let command_byte = payload[0];
+        let in_progress = command_byte
+            == StatusReportType::ChargeConstantCurrentOnFirmwareReport as u8
+            || command_byte == StatusReportType::DischargeConstantPowerOnFirmwareReport as u8
+            || command_byte == StatusReportType::DischargeConstantCurrentOnFirmwareReport as u8;
+        let device_mode = if command_byte
+            == StatusReportType::ChargeConstantCurrentOnFirmwareReport as u8
+            || command_byte == StatusReportType::ChargeConstantCurrentOffFirmwareReport as u8
+        {
+            DeviceMode::ChargeConstantVoltage
+        } else if command_byte == StatusReportType::DischargeConstantPowerOnFirmwareReport as u8
+            || command_byte == StatusReportType::DischargeConstantPowerOffFirmwareReport as u8
+        {
+            DeviceMode::DischargeConstantPower
+        } else {
+            DeviceMode::DischargeConstantCurrent
+        };
+        let version = decode_base240(payload[9], payload[10]);
+        let major = version / 100;
+        let minor = (version % 100) / 10;
+        let patch = version % 10;
+
+        Self::Firmware(FirmwareReport {
+            device_mode,
+            in_progress,
+            current_ma: decode_base240(payload[1], payload[2]) * 10,
+            voltage_mv: decode_base240(payload[3], payload[4]),
+            milli_ampere_hours: decode_base240(payload[5], payload[6]),
+            unknown: decode_base240(payload[7], payload[8]),
+            firmware_version: format!("{major}.{minor}.{patch}"),
+            unknown1: decode_base240(payload[11], payload[12]),
+            unknown2: decode_base240(payload[13], payload[14]),
+            device_type: get_device_model_name(payload[15]),
+        })
+    }
+
+    fn construct_charge_report(payload: &[u8]) -> Self {
+        let command_byte = payload[0];
+        Self::Charge(ChargeReport {
+            in_progress: command_byte == StatusReportType::ChargeConstantCurrentOnReport as u8,
+            current_ma: decode_base240(payload[1], payload[2]) * 10,
+            voltage_mv: decode_base240(payload[3], payload[4]),
+            milli_ampere_hours: decode_base240(payload[5], payload[6]),
+            unknown: decode_base240(payload[7], payload[8]),
+            charge_current_ma: decode_base240(payload[9], payload[10]) * 10,
+            charge_voltage_mv: decode_base240(payload[11], payload[12]),
+            cutoff_current_ma: decode_base240(payload[13], payload[14]),
+            device_type: get_device_model_name(payload[15]),
+        })
+    }
+
+    fn construct_discharge_constant_current_report(payload: &[u8]) -> Self {
+        let command_byte = payload[0];
+        Self::DischargeConstantCurrent(DischargeConstantCurrentReport {
+            in_progress: command_byte == StatusReportType::DischargeConstantCurrentOnReport as u8,
+            current_ma: decode_base240(payload[1], payload[2]) * 10,
+            voltage_mv: decode_base240(payload[3], payload[4]),
+            milli_ampere_hours: decode_base240(payload[5], payload[6]),
+            unknown: decode_base240(payload[7], payload[8]),
+            discharge_current_ma: decode_base240(payload[9], payload[10]) * 10,
+            cutoff_voltage_mv: decode_base240(payload[11], payload[12]),
+            cutoff_time_min: decode_base240(payload[13], payload[14]),
+            device_type: get_device_model_name(payload[15]),
+        })
+    }
+
+    fn construct_discharge_constant_power_report(payload: &[u8]) -> Self {
+        let command_byte = payload[0];
+        Self::DischargeConstantPower(DischargeConstantPowerReport {
+            in_progress: command_byte == StatusReportType::DischargeConstantPowerOnReport as u8,
+            current_ma: decode_base240(payload[1], payload[2]) * 10,
+            voltage_mv: decode_base240(payload[3], payload[4]),
+            milli_ampere_hours: decode_base240(payload[5], payload[6]),
+            unknown: decode_base240(payload[7], payload[8]),
+            discharge_power_w: decode_base240(payload[9], payload[10]),
+            cutoff_voltage_mv: decode_base240(payload[11], payload[12]),
+            cutoff_time_min: decode_base240(payload[13], payload[14]),
+            device_type: get_device_model_name(payload[15]),
+        })
+    }
 }
 
 impl TryFrom<&[u8]> for InboundFrame {
     type Error = String;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if value.len() > MAX_FRAME_SIZE {
-            return Err(format!("Frame too long, got {}", value.len()));
+        if value.len() != MAX_FRAME_SIZE {
+            return Err(format!(
+                "Frame length mismatch: expected {}, got {}",
+                MAX_FRAME_SIZE,
+                value.len()
+            ));
         }
         if value[0] != START_BYTE {
             return Err(format!(
@@ -301,130 +408,25 @@ impl TryFrom<&[u8]> for InboundFrame {
                 || x == StatusReportType::DischargeConstantCurrentOnFirmwareReport as u8
                 || x == StatusReportType::DischargeConstantCurrentOffFirmwareReport as u8 =>
             {
-                if value.len() != MAX_FRAME_SIZE {
-                    return Err(format!(
-                        "Invalid frame length for firmware report: expected {}, got {}",
-                        MAX_FRAME_SIZE,
-                        value.len()
-                    ));
-                }
-                let in_progress = command_byte
-                    == StatusReportType::ChargeConstantCurrentOnFirmwareReport as u8
-                    || command_byte
-                        == StatusReportType::DischargeConstantPowerOnFirmwareReport as u8
-                    || command_byte
-                        == StatusReportType::DischargeConstantCurrentOnFirmwareReport as u8;
-                let device_mode = if command_byte
-                    == StatusReportType::ChargeConstantCurrentOnFirmwareReport as u8
-                    || command_byte
-                        == StatusReportType::ChargeConstantCurrentOffFirmwareReport as u8
-                {
-                    DeviceMode::ChargeConstantVoltage
-                } else if command_byte
-                    == StatusReportType::DischargeConstantPowerOnFirmwareReport as u8
-                    || command_byte
-                        == StatusReportType::DischargeConstantPowerOffFirmwareReport as u8
-                {
-                    DeviceMode::DischargeConstantPower
-                } else {
-                    DeviceMode::DischargeConstantCurrent
-                };
-                let version = decode_base240(payload[9], payload[10]);
-                let major = version / 100;
-                let minor = (version % 100) / 10;
-                let patch = version % 10;
-
-                Ok(Self::FirmwareReport(FirmwareReport {
-                    device_mode,
-                    in_progress,
-                    current_ma: decode_base240(payload[1], payload[2]) * 10,
-                    voltage_mv: decode_base240(payload[3], payload[4]),
-                    milli_ampere_hours: decode_base240(payload[5], payload[6]),
-                    unknown: decode_base240(payload[7], payload[8]),
-                    firmware_version: format!("{major}.{minor}.{patch}"),
-                    unknown1: decode_base240(payload[11], payload[12]),
-                    unknown2: decode_base240(payload[13], payload[14]),
-                    device_type: get_device_model_name(payload[15]),
-                }))
+                Ok(Self::construct_firmware_report(payload))
             }
             x if x == StatusReportType::ChargeConstantCurrentOnReport as u8
                 || x == StatusReportType::ChargeConstantCurrentOffReport as u8
                 || x == StatusReportType::ChargeConstantCurrentEnd as u8 =>
             {
-                if value.len() != MAX_FRAME_SIZE {
-                    return Err(format!(
-                        "Invalid frame length for ChargeConstantCurrentReport: expected {}, got {}",
-                        MAX_FRAME_SIZE,
-                        value.len()
-                    ));
-                }
-                let command_byte = payload[0];
-                Ok(Self::ChargeReport(ChargeReport {
-                    in_progress: command_byte
-                        == StatusReportType::ChargeConstantCurrentOnReport as u8,
-                    current_ma: decode_base240(payload[1], payload[2]) * 10,
-                    voltage_mv: decode_base240(payload[3], payload[4]),
-                    milli_ampere_hours: decode_base240(payload[5], payload[6]),
-                    unknown: decode_base240(payload[7], payload[8]),
-                    charge_current_ma: decode_base240(payload[9], payload[10]) * 10,
-                    charge_voltage_mv: decode_base240(payload[11], payload[12]),
-                    cutoff_current_ma: decode_base240(payload[13], payload[14]),
-                    device_type: get_device_model_name(payload[15]),
-                }))
+                Ok(Self::construct_charge_report(payload))
             }
             x if x == StatusReportType::DischargeConstantCurrentOnReport as u8
                 || x == StatusReportType::DischargeConstantCurrentOffReport as u8
                 || x == StatusReportType::DischargeConstantCurrentEnd as u8 =>
             {
-                if value.len() != MAX_FRAME_SIZE {
-                    return Err(format!(
-                        "Invalid frame length for DischargeConstantCurrentReport: expected {}, got {}",
-                        MAX_FRAME_SIZE,
-                        value.len()
-                    ));
-                }
-                let command_byte = payload[0];
-                Ok(Self::DischargeConstantCurrentReport(
-                    DischargeConstantCurrentReport {
-                        in_progress: command_byte
-                            == StatusReportType::DischargeConstantCurrentOnReport as u8,
-                        current_ma: decode_base240(payload[1], payload[2]) * 10,
-                        voltage_mv: decode_base240(payload[3], payload[4]),
-                        milli_ampere_hours: decode_base240(payload[5], payload[6]),
-                        unknown: decode_base240(payload[7], payload[8]),
-                        discharge_current_ma: decode_base240(payload[9], payload[10]) * 10,
-                        cutoff_voltage_mv: decode_base240(payload[11], payload[12]),
-                        cutoff_time_min: decode_base240(payload[13], payload[14]),
-                        device_type: get_device_model_name(payload[15]),
-                    },
-                ))
+                Ok(Self::construct_discharge_constant_current_report(payload))
             }
             x if x == StatusReportType::DischargeConstantPowerOnReport as u8
                 || x == StatusReportType::DischargeConstantPowerOffReport as u8
                 || x == StatusReportType::DischargeConstantPowerEnd as u8 =>
             {
-                if value.len() != MAX_FRAME_SIZE {
-                    return Err(format!(
-                        "Invalid frame length for DischargeConstantPowerReport or DischargeConstantPowerIdleReport: expected {}, got {}",
-                        MAX_FRAME_SIZE,
-                        value.len()
-                    ));
-                }
-                let command_byte = payload[0];
-                Ok(Self::DischargeConstantPowerReport(
-                    DischargeConstantPowerReport {
-                        in_progress: command_byte
-                            == StatusReportType::DischargeConstantPowerOnReport as u8,
-                        current_ma: decode_base240(payload[1], payload[2]) * 10,
-                        voltage_mv: decode_base240(payload[3], payload[4]),
-                        milli_ampere_hours: decode_base240(payload[5], payload[6]),
-                        unknown: decode_base240(payload[7], payload[8]),
-                        discharge_power_w: decode_base240(payload[9], payload[10]),
-                        cutoff_voltage_mv: decode_base240(payload[11], payload[12]),
-                        cutoff_time_min: decode_base240(payload[13], payload[14]),
-                        device_type: get_device_model_name(payload[15]),
-                    },
-                ))
+                Ok(Self::construct_discharge_constant_power_report(payload))
             }
             _ => Err(format!("Unknown command byte: {command_byte:#04x}")),
         }

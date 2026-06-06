@@ -1,12 +1,14 @@
+use crate::device::InboundFrame;
+use crate::device::{
+    ConnectionStatus, DeviceEvent, END_BYTE, OutboundFrame, START_BYTE, UsbDeviceInfo,
+};
+use futures::FutureExt as _;
+use futures::StreamExt as _;
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use futures::channel::oneshot;
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
-use crate::device::{ConnectionStatus, OutboundFrame, DeviceEvent, UsbDeviceInfo, START_BYTE, END_BYTE};
-use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
-use futures::channel::oneshot;
-use futures::StreamExt as _;
-use futures::FutureExt as _;
-use crate::device::InboundFrame;
 
 const VENDOR_ID: u16 = 0x1A86;
 
@@ -34,7 +36,9 @@ pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
                         product_id: device.product_id(),
                     });
                 }
-                event_tx.unbounded_send(DeviceEvent::DevicesUpdated(devices)).ok();
+                event_tx
+                    .unbounded_send(DeviceEvent::DevicesUpdated(devices))
+                    .ok();
             }
             Err(e) => {
                 log::error!("Failed to enumerate USB devices: {e:?}");
@@ -69,6 +73,7 @@ pub fn spawn_device_task(
     wasm_bindgen_futures::spawn_local(device_task(ctx, cmd_rx, event_tx));
 }
 
+#[expect(clippy::too_many_lines)]
 async fn device_task(
     ctx: egui::Context,
     mut cmd_rx: UnboundedReceiver<OutboundFrame>,
@@ -80,7 +85,9 @@ async fn device_task(
     loop {
         match cmd_rx.next().await {
             Some(OutboundFrame::Connect(idx)) => {
-                event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connecting)).ok();
+                event_tx
+                    .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connecting))
+                    .ok();
                 ctx.request_repaint();
                 match connect(idx).await {
                     Ok(state) => {
@@ -88,7 +95,9 @@ async fn device_task(
                         out_endpoint_num = Some(state.out_endpoint_num);
                         let (stop_tx, stop_rx) = oneshot::channel();
                         stop_reading_tx = Some(stop_tx);
-                        event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connected)).ok();
+                        event_tx
+                            .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connected))
+                            .ok();
                         wasm_bindgen_futures::spawn_local(reading_task(
                             dev.clone(),
                             state.in_endpoint_num,
@@ -101,7 +110,9 @@ async fn device_task(
                     }
                     Err(e) => {
                         log::error!("Failed to connect: {e}");
-                        event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Error(e))).ok();
+                        event_tx
+                            .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Error(e)))
+                            .ok();
                         ctx.request_repaint();
                     }
                 }
@@ -109,54 +120,80 @@ async fn device_task(
             Some(OutboundFrame::Disconnect) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
                     if let Some(stop_tx) = stop_reading_tx.take() {
-                        let _ = stop_tx.send(());
+                        let result = stop_tx.send(());
+                        if let Err(e) = result {
+                            log::error!("Failed to stop reading task: {e:?}");
+                        }
                     }
-                    let _ = disconnect(device, ep).await;
-
+                    let result = disconnect(device, ep).await;
+                    if let Err(e) = result {
+                        log::error!("Failed to disconnect: {e:?}");
+                    }
                 }
                 device = None;
                 out_endpoint_num = None;
-                event_tx.unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Disconnected)).ok();
+                event_tx
+                    .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Disconnected))
+                    .ok();
                 ctx.request_repaint();
             }
             Some(OutboundFrame::Stop) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
-                    let _ = stop(device, ep).await;
+                    let result = stop(device, ep).await;
+                    if let Err(e) = result {
+                        log::error!("Failed to send stop command: {e:?}");
+                    }
                 }
             }
             Some(OutboundFrame::StartConstantCurrentDischarge(current, cutoff_mv, cutoff_time)) => {
-                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
-                    if let Err(e) = start_constant_current_discharge(device, ep, current, cutoff_mv, cutoff_time).await {
-                        log::error!("Failed to start constant current discharge mode: {e:?}");
-                    }
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
+                    && let Err(e) = start_constant_current_discharge(
+                        device,
+                        ep,
+                        current,
+                        cutoff_mv,
+                        cutoff_time,
+                    )
+                    .await
+                {
+                    log::error!("Failed to start constant current discharge mode: {e:?}");
                 }
             }
             Some(OutboundFrame::StartConstantPowerDischarge(power, cutoff_mv, cutoff_time)) => {
-                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
-                    if let Err(e) = start_constant_power_discharge(device, ep, power, cutoff_mv, cutoff_time).await {
-                        log::error!("Failed to start constant power discharge mode: {e:?}");
-                    }
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
+                    && let Err(e) =
+                        start_constant_power_discharge(device, ep, power, cutoff_mv, cutoff_time)
+                            .await
+                {
+                    log::error!("Failed to start constant power discharge mode: {e:?}");
                 }
             }
             Some(OutboundFrame::StartConstantVoltageCharge(current, cutoff_mv, cutoff_current)) => {
-                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
-                    if let Err(e) = start_constant_voltage_charge(device, ep, current, cutoff_mv, cutoff_current).await {
-                        log::error!("Failed to start constant voltage charge mode: {e:?}");
-                    }
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
+                    && let Err(e) = start_constant_voltage_charge(
+                        device,
+                        ep,
+                        current,
+                        cutoff_mv,
+                        cutoff_current,
+                    )
+                    .await
+                {
+                    log::error!("Failed to start constant voltage charge mode: {e:?}");
                 }
             }
             Some(OutboundFrame::Continue) => {
-                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
-                    if let Err(e) = continue_command(device, ep).await {
-                        log::error!("Failed to send continue command: {e:?}");
-                    }
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
+                    && let Err(e) = continue_command(device, ep).await
+                {
+                    log::error!("Failed to send continue command: {e:?}");
                 }
             }
             Some(OutboundFrame::StopConstantCurrentDischarge) => {
-                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
-                    if let Err(e) = stop_constant_current_discharge(device, ep).await {
-                        log::error!("Failed to send stop constant current discharge command: {e:?}");
-                    }
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
+                    && let Err(e) = stop_constant_current_discharge(device, ep).await
+                {
+                    log::error!("Failed to send stop constant current discharge command: {e:?}");
                 }
             }
             None => break,
@@ -233,31 +270,32 @@ async fn ch340_configure(device: &web_sys::UsbDevice) -> Result<(), JsValue> {
     // request = CH340 vendor command, value = register address, index = register value.
     let send = |request: u8, value: u16, index: u16| {
         let mut data = [0u8; 1];
-        device.control_transfer_out_with_u8_slice(
-            &web_sys::UsbControlTransferParameters::new(
-                index,
-                web_sys::UsbRecipient::Device,
-                request,
-                web_sys::UsbRequestType::Vendor,
-                value,
-            ),
-            &mut data,
-        )
-        .map(JsFuture::from)
+        device
+            .control_transfer_out_with_u8_slice(
+                &web_sys::UsbControlTransferParameters::new(
+                    index,
+                    web_sys::UsbRecipient::Device,
+                    request,
+                    web_sys::UsbRequestType::Vendor,
+                    value,
+                ),
+                &mut data,
+            )
+            .map(JsFuture::from)
     };
 
     // The CH340 requires a specific sequence of control transfers to initialize the serial port.
-    send(0xA1, 0xC29C, 0xB2B9)?.await?;  // serial init
-    send(0xA4, 0x00DF, 0x0000)?.await?;  // modem ctrl: DTR + RTS on
-    send(0xA4, 0x009F, 0x0000)?.await?;  // modem ctrl: call mode
-    send(0x9A, 0x2727, 0x0000)?.await?;  // reset control status
-    send(0x9A, 0x1312, 0xB282)?.await?;  // baud factor: 9600
-    send(0x9A, 0x0F2C, 0x0008)?.await?;  // baud offset: 9600
-    send(0x9A, 0x2518, 0x00CB)?.await?;  // line control: 8 bit | odd parity | 1 stop
-    send(0x9A, 0x2727, 0x0000)?.await?;  // control status
-    send(0x9A, 0x1312, 0xB282)?.await?;  // baud factor: 9600 (final set)
-    send(0x9A, 0x0F2C, 0x0008)?.await?;  // baud offset: 9600 (final set)
-    send(0x9A, 0x2727, 0x0000)?.await?;  // control status (final)
+    send(0xA1, 0xC29C, 0xB2B9)?.await?; // serial init
+    send(0xA4, 0x00DF, 0x0000)?.await?; // modem ctrl: DTR + RTS on
+    send(0xA4, 0x009F, 0x0000)?.await?; // modem ctrl: call mode
+    send(0x9A, 0x2727, 0x0000)?.await?; // reset control status
+    send(0x9A, 0x1312, 0xB282)?.await?; // baud factor: 9600
+    send(0x9A, 0x0F2C, 0x0008)?.await?; // baud offset: 9600
+    send(0x9A, 0x2518, 0x00CB)?.await?; // line control: 8 bit | odd parity | 1 stop
+    send(0x9A, 0x2727, 0x0000)?.await?; // control status
+    send(0x9A, 0x1312, 0xB282)?.await?; // baud factor: 9600 (final set)
+    send(0x9A, 0x0F2C, 0x0008)?.await?; // baud offset: 9600 (final set)
+    send(0x9A, 0x2727, 0x0000)?.await?; // control status (final)
 
     Ok(())
 }
@@ -308,14 +346,14 @@ async fn connect(device_index: usize) -> Result<UsbState, String> {
             }
         }
     }
-    let (Some(interface_num), Some(out_endpoint_num), Some(in_endpoint_num)) = (
-        interface_num,
-        out_endpoint_num,
-        in_endpoint_num,
-    ) else {
+    let (Some(interface_num), Some(out_endpoint_num), Some(in_endpoint_num)) =
+        (interface_num, out_endpoint_num, in_endpoint_num)
+    else {
         return Err("No bulk endpoints found on USB device".to_owned());
     };
-    log::info!("Using interface {interface_num}, OUT endpoint {out_endpoint_num}, IN endpoint {in_endpoint_num}");
+    log::info!(
+        "Using interface {interface_num}, OUT endpoint {out_endpoint_num}, IN endpoint {in_endpoint_num}"
+    );
 
     JsFuture::from(device.claim_interface(interface_num))
         .await
@@ -360,8 +398,15 @@ async fn stop(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), J
     Ok(())
 }
 
-async fn start_constant_current_discharge(device: &web_sys::UsbDevice, out_endpoint_num: u8, current_ma: u16, cutoff_mv: u16, cutoff_time_min: u16) -> Result<(), JsValue> {
-    let mut bytes: [u8; 10] = OutboundFrame::StartConstantCurrentDischarge(current_ma, cutoff_mv, cutoff_time_min).into();
+async fn start_constant_current_discharge(
+    device: &web_sys::UsbDevice,
+    out_endpoint_num: u8,
+    current_ma: u16,
+    cutoff_mv: u16,
+    cutoff_time_min: u16,
+) -> Result<(), JsValue> {
+    let mut bytes: [u8; 10] =
+        OutboundFrame::StartConstantCurrentDischarge(current_ma, cutoff_mv, cutoff_time_min).into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
@@ -371,8 +416,15 @@ async fn start_constant_current_discharge(device: &web_sys::UsbDevice, out_endpo
     Ok(())
 }
 
-async fn start_constant_power_discharge(device: &web_sys::UsbDevice, out_endpoint_num: u8, power_w: u16, cutoff_mv: u16, cutoff_time_min: u16) -> Result<(), JsValue> {
-    let mut bytes: [u8; 10] = OutboundFrame::StartConstantPowerDischarge(power_w, cutoff_mv, cutoff_time_min).into();
+async fn start_constant_power_discharge(
+    device: &web_sys::UsbDevice,
+    out_endpoint_num: u8,
+    power_w: u16,
+    cutoff_mv: u16,
+    cutoff_time_min: u16,
+) -> Result<(), JsValue> {
+    let mut bytes: [u8; 10] =
+        OutboundFrame::StartConstantPowerDischarge(power_w, cutoff_mv, cutoff_time_min).into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
@@ -382,8 +434,15 @@ async fn start_constant_power_discharge(device: &web_sys::UsbDevice, out_endpoin
     Ok(())
 }
 
-async fn start_constant_voltage_charge(device: &web_sys::UsbDevice, out_endpoint_num: u8, current_ma: u16, cutoff_mv: u16, cutoff_current_ma: u16) -> Result<(), JsValue> {
-    let mut bytes: [u8; 10] = OutboundFrame::StartConstantVoltageCharge(current_ma, cutoff_mv, cutoff_current_ma).into();
+async fn start_constant_voltage_charge(
+    device: &web_sys::UsbDevice,
+    out_endpoint_num: u8,
+    current_ma: u16,
+    cutoff_mv: u16,
+    cutoff_current_ma: u16,
+) -> Result<(), JsValue> {
+    let mut bytes: [u8; 10] =
+        OutboundFrame::StartConstantVoltageCharge(current_ma, cutoff_mv, cutoff_current_ma).into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
@@ -393,7 +452,10 @@ async fn start_constant_voltage_charge(device: &web_sys::UsbDevice, out_endpoint
     Ok(())
 }
 
-async fn continue_command(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
+async fn continue_command(
+    device: &web_sys::UsbDevice,
+    out_endpoint_num: u8,
+) -> Result<(), JsValue> {
     let mut bytes: [u8; 10] = OutboundFrame::Continue.into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
@@ -404,7 +466,10 @@ async fn continue_command(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> 
     Ok(())
 }
 
-async fn stop_constant_current_discharge(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
+async fn stop_constant_current_discharge(
+    device: &web_sys::UsbDevice,
+    out_endpoint_num: u8,
+) -> Result<(), JsValue> {
     let mut bytes: [u8; 10] = OutboundFrame::StopConstantCurrentDischarge.into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
