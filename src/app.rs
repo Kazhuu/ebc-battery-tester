@@ -1,11 +1,14 @@
 use crate::device;
 use crate::usb;
 use device::{ConnectionStatus, DeviceEvent, OutboundFrame};
+use egui_plot::AxisHints;
+use egui_plot::HPlacement;
 use egui_plot::Legend;
 use egui_plot::Line;
 use egui_plot::Plot;
 use egui_plot::PlotPoint;
 use egui_plot::PlotPoints;
+use egui_plot::VPlacement;
 use futures::channel::mpsc;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -599,16 +602,38 @@ impl MainApp {
     fn plot_ui(&self, ui: &mut egui::Ui) {
         let label_formatter = |_s: &str, val: &PlotPoint| {
             format!(
-                "{:.2} s: {:.3} V, {:.2} A",
-                val.x,
+                "{}: {:.3} V, {:.2} A",
+                format_duration(val.x),
                 val.y,
                 self.live_current_ma as f64 / 1000.0
             )
         };
 
+        let time_axis_formatter =
+            |mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
+                format_duration(mark.value)
+            };
+
         Plot::new("live_data_plot")
             .legend(Legend::default())
             .label_formatter(label_formatter)
+            .custom_x_axes(vec![
+                AxisHints::new_x()
+                    .label("Time")
+                    .formatter(time_axis_formatter),
+                AxisHints::new_x()
+                    .label("Time")
+                    .placement(VPlacement::Top)
+                    .formatter(time_axis_formatter),
+            ])
+            .custom_y_axes(vec![
+                AxisHints::new_y()
+                    .label("Voltage (V) / Current (A)")
+                    .placement(HPlacement::Left),
+                AxisHints::new_y()
+                    .label("Voltage (V) / Current (A)")
+                    .placement(HPlacement::Right),
+            ])
             .show(ui, |plot_ui| {
                 plot_ui.line(
                     Line::new("Voltage", PlotPoints::Borrowed(&self.voltage_points))
@@ -661,6 +686,18 @@ impl eframe::App for MainApp {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             self.plot_ui(ui);
         });
+    }
+}
+
+fn format_duration(total_seconds: f64) -> String {
+    let total_seconds = total_seconds as u64;
+    let h = total_seconds / 3600;
+    let m = (total_seconds % 3600) / 60;
+    let s = total_seconds % 60;
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m:02}:{s:02}")
     }
 }
 

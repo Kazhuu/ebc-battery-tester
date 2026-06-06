@@ -91,7 +91,8 @@ To restore the original behavior, just remove the udev rule added above.
 
 ### Web Locally
 
-You can compile your app to [WASM](https://en.wikipedia.org/wiki/WebAssembly) and publish it as a web page.
+You can compile your app to [WASM](https://en.wikipedia.org/wiki/WebAssembly)
+and publish it as a web page.
 
 We use [Trunk](https://trunkrs.dev/) to build for web target.
 
