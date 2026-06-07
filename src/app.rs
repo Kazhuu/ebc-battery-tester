@@ -255,7 +255,6 @@ impl MainApp {
             .and_then(|i| device_labels.get(i))
             .map_or_else(|| "No device selected".to_owned(), Clone::clone);
 
-        ui.label("Select device:");
         ui.horizontal(|ui| {
             #[cfg(target_arch = "wasm32")]
             if ui.button("+").clicked() {
