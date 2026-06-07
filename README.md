@@ -120,6 +120,21 @@ the following line in [.vscode/settings.json](.vscode/settings.json):
 
 Remember to revert this when switching back to native development.
 
+### Creating a Release
+
+1. Bump the version in `Cargo.toml`.
+2. Commit and push to main, then wait for CI to pass.
+3. Tag the commit with the matching version and push the tag:
+
+```bash
+git tag v0.2.0
+git push --tags
+```
+
+The release workflow will validate that the tag matches the version in `Cargo.toml`,
+build Linux, Windows and WASM targets, and publish a GitHub release with all three
+as downloadable assets.
+
 ### CI Checks
 
 To run all CI checks locally at once, use the provided script

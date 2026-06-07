@@ -1,7 +1,10 @@
 name: Github Pages
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Build and Test"]
+    types:
+      - completed
     branches:
       - main
 
@@ -10,6 +13,7 @@ permissions:
 
 jobs:
   build-github-pages:
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4 # repo checkout
