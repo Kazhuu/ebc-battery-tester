@@ -2,8 +2,6 @@ use serde::{Deserialize, Serialize};
 
 pub const VENDOR_ID: u16 = 0x1A86;
 
-pub const BAUD_RATE: u32 = 9600;
-
 pub const MAX_FRAME_SIZE: usize = 19;
 
 // Start of Frame (SOF) and End of Frame (EOF) bytes.
@@ -568,11 +566,11 @@ fn start_constant_current_discharge_command(
     cutoff_time_min: u16,
 ) -> [u8; 10] {
     assert!(
-        !(current_ma < MIN_DISCHARGE_CURRENT_MA || current_ma > MAX_DISCHARGE_CURRENT_MA),
+        (MIN_DISCHARGE_CURRENT_MA..=MAX_DISCHARGE_CURRENT_MA).contains(&current_ma),
         "Current must be between {MIN_DISCHARGE_CURRENT_MA}mA and {MAX_DISCHARGE_CURRENT_MA}mA"
     );
     assert!(
-        !(cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV),
+        (MIN_VOLTAGE_MV..=MAX_VOLTAGE_MV).contains(&cutoff_mv),
         "Cutoff voltage must be between {MIN_VOLTAGE_MV}mV and {MAX_VOLTAGE_MV}mV"
     );
     assert!(
@@ -600,11 +598,11 @@ fn start_constant_power_discharge_command(
     cutoff_time_min: u16,
 ) -> [u8; 10] {
     assert!(
-        !(power_w < MIN_POWER_W || power_w > MAX_POWER_W),
+        (MIN_POWER_W..=MAX_POWER_W).contains(&power_w),
         "Watts must be between {MIN_POWER_W}W and {MAX_POWER_W}W"
     );
     assert!(
-        !(cutoff_mv < MIN_VOLTAGE_MV || cutoff_mv > MAX_VOLTAGE_MV),
+        (MIN_VOLTAGE_MV..=MAX_VOLTAGE_MV).contains(&cutoff_mv),
         "Cutoff voltage must be between {MIN_VOLTAGE_MV}mV and {MAX_VOLTAGE_MV}mV"
     );
     assert!(
@@ -632,16 +630,15 @@ fn start_constant_voltage_charge_command(
     cutoff_current_ma: u16,
 ) -> [u8; 10] {
     assert!(
-        !(current_ma < MIN_CHARGE_CURRENT_MA || current_ma > MAX_CHARGE_CURRENT_MA),
+        (MIN_CHARGE_CURRENT_MA..=MAX_CHARGE_CURRENT_MA).contains(&current_ma),
         "Current must be between {MIN_CHARGE_CURRENT_MA}mA and {MAX_CHARGE_CURRENT_MA}mA"
     );
     assert!(
-        !(charge_voltage_mv < MIN_VOLTAGE_MV || charge_voltage_mv > MAX_VOLTAGE_MV),
+        (MIN_VOLTAGE_MV..=MAX_VOLTAGE_MV).contains(&charge_voltage_mv),
         "Charge voltage must be between {MIN_VOLTAGE_MV}mV and {MAX_VOLTAGE_MV}mV"
     );
     assert!(
-        !(cutoff_current_ma < MIN_CHARGE_CUTOFF_CURRENT_MA
-            || cutoff_current_ma > MAX_CHARGE_CUTOFF_CURRENT_MA),
+        (MIN_CHARGE_CUTOFF_CURRENT_MA..=MAX_CHARGE_CUTOFF_CURRENT_MA).contains(&cutoff_current_ma),
         "Cutoff current must be between {MIN_CHARGE_CUTOFF_CURRENT_MA}mA and {MAX_CHARGE_CUTOFF_CURRENT_MA}mA"
     );
 

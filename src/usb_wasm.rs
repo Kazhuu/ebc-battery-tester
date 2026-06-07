@@ -213,7 +213,7 @@ async fn reading_task(
                     let result: web_sys::UsbInTransferResult = value.unchecked_into();
                     if let Some(data) = result.data() {
                         buf.extend_from_slice(&js_sys::Uint8Array::new(&data.buffer()).to_vec());
-                        for frame in crate::device::process_buf(&mut buf) {
+                        for frame in crate::device::process_buffer(&mut buf) {
                             event_tx.unbounded_send(DeviceEvent::Frame(frame)).ok();
                             ctx.request_repaint();
                         }

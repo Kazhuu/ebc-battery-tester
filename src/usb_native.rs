@@ -4,6 +4,7 @@ use crate::device::{ConnectionStatus, DeviceEvent, OutboundFrame, UsbDeviceInfo}
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use serialport::SerialPortType;
 
+const BAUD_RATE: u32 = 9600;
 const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_millis(10);
 
 #[expect(clippy::needless_pass_by_value)]
@@ -50,7 +51,7 @@ fn find_ch340_port(idx: usize) -> Option<String> {
 
 fn connect(idx: usize) -> Result<Box<dyn serialport::SerialPort>, String> {
     let name = find_ch340_port(idx).ok_or_else(|| format!("No CH340 device at index {idx}"))?;
-    let mut port = serialport::new(&name, crate::device::BAUD_RATE)
+    let mut port = serialport::new(&name, BAUD_RATE)
         .data_bits(serialport::DataBits::Eight)
         .parity(serialport::Parity::Odd)
         .stop_bits(serialport::StopBits::One)
