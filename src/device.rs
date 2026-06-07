@@ -452,6 +452,31 @@ impl std::fmt::Debug for DeviceEvent {
     }
 }
 
+pub fn process_buffer(buf: &mut Vec<u8>) -> Vec<InboundFrame> {
+    let mut frames = Vec::new();
+    loop {
+        if let Some(start) = buf.iter().position(|&b| b == START_BYTE) {
+            if start > 0 {
+                buf.drain(..start);
+            }
+        } else {
+            buf.clear();
+            break;
+        }
+        if let Some(end) = buf[1..].iter().position(|&b| b == END_BYTE) {
+            let frame_end = end + 2; // +1 for slice offset, +1 for inclusive
+            let frame = buf.drain(..frame_end).collect::<Vec<u8>>();
+            match InboundFrame::try_from(frame.as_slice()) {
+                Ok(f) => frames.push(f),
+                Err(e) => log::warn!("Failed to parse frame: {e}"),
+            }
+        } else {
+            break;
+        }
+    }
+    frames
+}
+
 // Encoding to prevent bytes > 240 in the byte stream, allowing 0xfa and 0xf8
 // to be safely used as SOF and EOF markers.
 fn encode_base240(value: u16) -> (u8, u8) {

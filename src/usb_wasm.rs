@@ -1,7 +1,4 @@
-use crate::device::InboundFrame;
-use crate::device::{
-    ConnectionStatus, DeviceEvent, END_BYTE, OutboundFrame, START_BYTE, UsbDeviceInfo,
-};
+use crate::device::{ConnectionStatus, DeviceEvent, OutboundFrame, UsbDeviceInfo};
 use futures::FutureExt as _;
 use futures::StreamExt as _;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -218,32 +215,9 @@ async fn reading_task(
                     let result: web_sys::UsbInTransferResult = value.unchecked_into();
                     if let Some(data) = result.data() {
                         buf.extend_from_slice(&js_sys::Uint8Array::new(&data.buffer()).to_vec());
-                        loop {
-                            // Discard bytes before the start delimiter.
-                            if let Some(start) = buf.iter().position(|&b| b == START_BYTE) {
-                                if start > 0 {
-                                    buf.drain(..start);
-                                }
-                            } else {
-                                buf.clear();
-                                break;
-                            }
-                            // Find the end delimiter after the start.
-                            if let Some(end) = buf[1..].iter().position(|&b| b == END_BYTE) {
-                                let frame_end = end + 2; // +1 for slice offset, +1 for inclusive
-                                let frame = buf.drain(..frame_end).collect::<Vec<u8>>();
-                                let frame = match InboundFrame::try_from(frame.as_slice()) {
-                                    Ok(f) => f,
-                                    Err(e) => {
-                                        log::warn!("Failed to parse frame: {e}");
-                                        continue;
-                                    }
-                                };
-                                event_tx.unbounded_send(DeviceEvent::Frame(frame)).ok();
-                                ctx.request_repaint();
-                            } else {
-                                break;
-                            }
+                        for frame in crate::device::process_buf(&mut buf) {
+                            event_tx.unbounded_send(DeviceEvent::Frame(frame)).ok();
+                            ctx.request_repaint();
                         }
                     }
                 }
