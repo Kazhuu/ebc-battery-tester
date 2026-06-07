@@ -85,9 +85,13 @@ To restore the original behavior, just remove the udev rule added above.
 
 ## Development
 
-### Testing locally
+### Native Target Locally
 
-`cargo run --release`
+To develop the app locally with auto compile, run
+
+```bash
+cargo-watch -x run
+```
 
 ### Web Locally
 
@@ -103,6 +107,18 @@ We use [Trunk](https://trunkrs.dev/) to build for web target.
 
 > `assets/sw.js` script will try to cache our app, and loads the cached version when it cannot connect to server allowing your app to work offline (like PWA).
 > appending `#dev` to `index.html` will skip this caching, allowing us to load the latest builds during development.
+
+### VSCode WASM Target
+
+By default, VSCode and rust-analyzer compile and show errors for the native
+target. To get errors and code completion for the WASM target instead, uncomment
+the following line in [.vscode/settings.json](.vscode/settings.json):
+
+```json
+"rust-analyzer.cargo.target": "wasm32-unknown-unknown",
+```
+
+Remember to revert this when switching back to native development.
 
 ### CI Checks
 
