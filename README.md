@@ -10,6 +10,19 @@ The deployed web app is available at
 
 The app is built with Rust using egui and eframe.
 
+## TODO
+
+These are missing features compared to the original Windows software.
+
+- Calibration support.
+- Plot saving as an image.
+- Data exporting to CSV file.
+
+These are things that requires attention from development perspective
+
+- Add tests.
+- Split UI code to smaller pieces.
+
 ## Important Notes
 
 The browser version uses WebUSB to communicate with the device. WebUSB is only
