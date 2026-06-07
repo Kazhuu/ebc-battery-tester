@@ -255,17 +255,15 @@ impl MainApp {
             .and_then(|i| device_labels.get(i))
             .map_or_else(|| "No device selected".to_owned(), Clone::clone);
 
-        ui.horizontal(|ui| {
-            #[cfg(target_arch = "wasm32")]
-            if ui.button("Pair new device").clicked() {
-                usb::request_device(self.event_tx.clone());
-            }
-            if ui.button("Refresh").clicked() {
-                usb::enumerate_devices(self.event_tx.clone());
-            }
-        });
         ui.label("Select device:");
         ui.horizontal(|ui| {
+            #[cfg(target_arch = "wasm32")]
+            if ui.button("+").clicked() {
+                usb::request_device(self.event_tx.clone());
+            }
+            if ui.button("⟳").clicked() {
+                usb::enumerate_devices(self.event_tx.clone());
+            }
             egui::ComboBox::from_id_salt("usb_device_selector")
                 .selected_text(selected_text)
                 .show_ui(ui, |ui| {
