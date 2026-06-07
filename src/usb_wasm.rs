@@ -7,8 +7,6 @@ use wasm_bindgen::JsCast as _;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 
-const VENDOR_ID: u16 = 0x1A86;
-
 struct UsbState {
     device: web_sys::UsbDevice,
     out_endpoint_num: u8,
@@ -51,7 +49,7 @@ pub fn request_device(event_tx: UnboundedSender<DeviceEvent>) {
         };
         let usb = window.navigator().usb();
         let filter = web_sys::UsbDeviceFilter::new();
-        filter.set_vendor_id(VENDOR_ID);
+        filter.set_vendor_id(crate::device::VENDOR_ID);
         let options = web_sys::UsbDeviceRequestOptions::new(&[filter]);
         match JsFuture::from(usb.request_device(&options)).await {
             Ok(_) => enumerate_devices(event_tx),
@@ -62,7 +60,7 @@ pub fn request_device(event_tx: UnboundedSender<DeviceEvent>) {
     });
 }
 
-pub fn spawn_device_task(
+pub fn spawn_device_worker(
     ctx: egui::Context,
     cmd_rx: UnboundedReceiver<OutboundFrame>,
     event_tx: UnboundedSender<DeviceEvent>,

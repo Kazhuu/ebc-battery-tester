@@ -4,7 +4,7 @@ use crate::device::{ConnectionStatus, DeviceEvent, OutboundFrame, UsbDeviceInfo}
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use serialport::SerialPortType;
 
-const VENDOR_ID: u16 = 0x1A86;
+const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_millis(10);
 
 #[expect(clippy::needless_pass_by_value)]
 pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
@@ -14,7 +14,7 @@ pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
         .into_iter()
         .filter_map(|p| {
             if let SerialPortType::UsbPort(usb) = p.port_type
-                && usb.vid == VENDOR_ID
+                && usb.vid == crate::device::VENDOR_ID
             {
                 return Some(UsbDeviceInfo {
                     product_name: usb.product.unwrap_or_default(),
@@ -31,7 +31,7 @@ pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
         .ok();
 }
 
-pub fn spawn_device_task(
+pub fn spawn_device_worker(
     ctx: egui::Context,
     cmd_rx: UnboundedReceiver<OutboundFrame>,
     event_tx: UnboundedSender<DeviceEvent>,
@@ -43,14 +43,14 @@ fn find_ch340_port(idx: usize) -> Option<String> {
     serialport::available_ports()
         .ok()?
         .into_iter()
-        .filter(|p| matches!(&p.port_type, SerialPortType::UsbPort(usb) if usb.vid == VENDOR_ID))
+        .filter(|p| matches!(&p.port_type, SerialPortType::UsbPort(usb) if usb.vid == crate::device::VENDOR_ID))
         .nth(idx)
         .map(|p| p.port_name)
 }
 
 fn connect(idx: usize) -> Result<Box<dyn serialport::SerialPort>, String> {
     let name = find_ch340_port(idx).ok_or_else(|| format!("No CH340 device at index {idx}"))?;
-    let mut port = serialport::new(&name, 9600)
+    let mut port = serialport::new(&name, crate::device::BAUD_RATE)
         .data_bits(serialport::DataBits::Eight)
         .parity(serialport::Parity::Odd)
         .stop_bits(serialport::StopBits::One)
@@ -68,9 +68,9 @@ fn device_thread(
     ctx: egui::Context,
     mut cmd_rx: UnboundedReceiver<OutboundFrame>,
     event_tx: UnboundedSender<DeviceEvent>,
-) {
+) -> ! {
     let mut port: Option<Box<dyn serialport::SerialPort>> = None;
-    let mut buf: Vec<u8> = Vec::new();
+    let mut buffer: Vec<u8> = Vec::new();
 
     loop {
         loop {
@@ -108,7 +108,7 @@ fn device_thread(
                         }
                     }
                     port = None;
-                    buf.clear();
+                    buffer.clear();
                     event_tx
                         .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Disconnected))
                         .ok();
@@ -127,11 +127,11 @@ fn device_thread(
         }
 
         if let Some(ref mut p) = port {
-            let mut tmp = [0u8; 64];
-            match p.read(&mut tmp) {
+            let mut temp_buffer = [0u8; 64];
+            match p.read(&mut temp_buffer) {
                 Ok(n) if n > 0 => {
-                    buf.extend_from_slice(&tmp[..n]);
-                    for frame in crate::device::process_buffer(&mut buf) {
+                    buffer.extend_from_slice(&temp_buffer[..n]);
+                    for frame in crate::device::process_buffer(&mut buffer) {
                         event_tx.unbounded_send(DeviceEvent::Frame(frame)).ok();
                         ctx.request_repaint();
                     }
@@ -141,7 +141,7 @@ fn device_thread(
                 Err(e) => {
                     log::error!("Serial read error: {e}");
                     port = None;
-                    buf.clear();
+                    buffer.clear();
                     event_tx
                         .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Error(
                             "Read error: connection lost".to_owned(),
@@ -151,7 +151,7 @@ fn device_thread(
                 }
             }
         } else {
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(SLEEP_DURATION);
         }
     }
 }

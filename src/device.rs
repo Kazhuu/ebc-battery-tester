@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+pub const VENDOR_ID: u16 = 0x1A86;
+
+pub const BAUD_RATE: u32 = 9600;
+
 pub const MAX_FRAME_SIZE: usize = 19;
 
 // Start of Frame (SOF) and End of Frame (EOF) bytes.

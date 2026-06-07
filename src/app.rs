@@ -101,7 +101,7 @@ impl MainApp {
         };
         let (cmd_tx, cmd_rx) = mpsc::unbounded::<OutboundFrame>();
         let (event_tx, event_rx) = mpsc::unbounded::<DeviceEvent>();
-        usb::spawn_device_task(cc.egui_ctx.clone(), cmd_rx, event_tx.clone());
+        usb::spawn_device_worker(cc.egui_ctx.clone(), cmd_rx, event_tx.clone());
         usb::enumerate_devices(event_tx.clone());
         app.cmd_tx = cmd_tx;
         app.event_rx = event_rx;
