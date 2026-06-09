@@ -23,53 +23,136 @@ These are things that requires attention from development perspective
 - Add tests.
 - Split UI code to smaller pieces.
 
-### Calibration Feature Notes
+## Reverse Engineering Notes
 
-Capture USB device with
+To capture new frames, record USB traffic with tshark and filter by device
+address (find it with `lsusb`):
 
 ```bash
-tshark -i usbmon1  -w output.pcap
+tshark -i usbmon1 -w output.pcap
 ```
-
-Then filter by the device address. See the device address with `lsusb`.
 
 ```bash
 usb.device_address == 11
 ```
 
-In the calibration dialog UI user can set low and high voltage values. According
-to the manual these should be 1V for low and 4V for high. There is a calibration
-button next to each field separately. After done, user presses Ok to close the
-dialog.
+### Calibration Feature Notes
 
-Frame structure is 10 bytes matching the existing protocol:
+The calibration dialog has four reference point fields: low voltage, high
+voltage, low current and high current. According to the manual the voltage
+references should be 1V and 4V. Each field has its own calibrate button, and
+pressing OK at the end closes the dialog.
 
-```text
-[0xfa] [cmd] [sub] [voltage_h] [voltage_l] [0x00] [0x00] [0x00] [checksum] [0xf8]
-```
+All calibration frames use command byte `0x04` (not yet in the `CommandType`
+enum) and follow the same 10-byte frame structure as other commands. The
+sub-command byte in the second position selects the operation:
 
-Command byte is `0x04` (Calibrate — not yet in `CommandType` enum). Sub-command
-byte determines the operation. The voltage field uses the same `encode_base240`
-encoding as other commands, but is encoded in full mV instead of mV/10, giving
-1mV resolution.
+| Sub-cmd | Operation             | Data    |
+|---------|-----------------------|---------|
+| `0x00`  | Set low voltage ref   | full mV |
+| `0x01`  | Set high voltage ref  | full mV |
+| `0x02`  | Set low current ref   | full mA |
+| `0x03`  | Set high current ref  | full mA |
+| `0x04`  | Confirm/close dialog  | —       |
 
-When setting high voltage and pressing calibrate, sub-command `0x01` is sent:
-
-```text
-3758mV → fa 04 01 0f 9e 00 00 00 94 f8   decode_base240(0x0f, 0x9e) = 3758
-3757mV → fa 04 01 0f 9d 00 00 00 97 f8   decode_base240(0x0f, 0x9d) = 3757
-3747mV → fa 04 01 0f 93 00 00 00 99 f8   decode_base240(0x0f, 0x93) = 3747
-```
-
-When OK is pressed to close the dialog, sub-command `0x04` is sent with no
-voltage data. This frame is the same regardless of the voltage that was set:
+The value is `encode_base240`-encoded in bytes 3–4, using full mV or mA
+instead of the mV/10 and mA/10 scaling used by other commands.
 
 ```text
-fa 04 04 00 00 00 00 00 00 f8
+[0xfa] [0x04] [sub] [value_h] [value_l] [0x00] [0x00] [0x00] [checksum] [0xf8]
 ```
 
-The sub-command for the low voltage calibration point (1V reference) is still
-unknown — a capture of pressing calibrate on the low voltage field is needed.
+Captured frames:
+
+```text
+Low voltage  3747mV → fa 04 00 0f 93 00 00 00 98 f8
+High voltage 3758mV → fa 04 01 0f 9e 00 00 00 94 f8
+Low current  3000mA → fa 04 02 0c 78 00 00 00 72 f8
+High current 3001mA → fa 04 03 0c 79 00 00 00 72 f8
+Confirm             → fa 04 04 00 00 00 00 00 00 f8
+```
+
+The dialog also has a cancel button. When user presses this, the Confirm frame
+is not sent. Does this save the actual values in the device or what does it do?
+
+### Timer Sync Notes
+
+Both charge and discharge modes send an elapsed-minutes counter to the device
+once per minute using command `0x0A`. The minute count is base240-encoded in
+payload bytes 1–2. The device does not respond beyond its normal report frames.
+Likely used to keep the device LCD timer in sync with the host.
+
+```text
+1 min → fa 0a 00 01 00 00 00 00 0b f8
+2 min → fa 0a 00 02 00 00 00 00 08 f8
+3 min → fa 0a 00 03 00 00 00 00 09 f8
+```
+
+### Constant Current Charge Notes
+
+Settings cannot be adjusted while charging is active.
+
+Resume charge with 3A, 4.2V, cutoff 0.1A uses command `0x28`:
+
+```text
+fa 28 01 3c 01 b4 00 0a aa f8
+```
+
+### Discharge Constant Current Notes
+
+Settings can be adjusted on the fly using command `0x07`
+(`AdjustDischargeConstantCurrent`). Encoding is the same as the start command:
+current in mA/10, cutoff voltage in mV/10, time in minutes, all base240.
+
+```text
+200mA, 3.3V cutoff, no time limit → fa 07 00 14 01 5a 00 00 48 f8
+```
+
+Resume after stop uses command `0x08`. Despite the current `StopConstantCurrentDischarge`
+label in the code, the captured frame includes current, cutoff voltage and time
+parameters — it behaves like a resume/continue rather than a plain stop.
+
+```text
+100mA, 3.3V cutoff, no time limit → fa 08 00 0a 01 5a 00 00 59 f8
+```
+
+### Discharge Constant Power Notes
+
+Settings cannot be adjusted on the fly in this mode. Resume after stop uses
+command `0x18` (`Continue`) with power in W, cutoff voltage in mV/10, and time
+in minutes. The existing `continue_command()` in the code sends hardcoded zeros
+for these parameters and is likely wrong.
+
+```text
+1W, 3.3V cutoff, no time limit → fa 18 00 01 01 5a 00 00 42 f8
+```
+
+### Internal Resistance Test Notes
+
+The Windows software has a dialog where the user inputs a test current in mA
+and presses Test. Command `0x09` triggers a brief discharge at that current.
+The current is encoded the same way as discharge commands: mA/10, base240.
+
+```text
+ 200mA → fa 09 00 14 00 00 00 00 1d f8
+1000mA → fa 09 00 64 00 00 00 00 6d f8
+2000mA → fa 09 00 c8 00 00 00 00 c1 f8
+```
+
+The device responds with a `DischargeConstantPower` off-report (`0x01`) containing
+the battery voltage measured under that load, then the fan spins briefly.
+
+```text
+fa 01 00 00 0f 93 00 09 00 00 00 01 01 5a 00 00 09 c7 f8
+→ voltage=3747mV, current=0mA, mAh=9, power=1W, cutoff=3300mV
+```
+
+The Windows software calculates internal resistance from two consecutive voltage
+readings: `R = (V_open_circuit − V_under_load) / I`. The pre-test open-circuit
+voltage comes from a prior firmware report; the loaded voltage comes from this
+response. The "0mR" result means the voltage drop was below the measurement
+resolution — either a low-impedance battery or the discharge pulse was too short
+to produce a measurable ΔV.
 
 ## Important Notes
 
