@@ -23,6 +23,54 @@ These are things that requires attention from development perspective
 - Add tests.
 - Split UI code to smaller pieces.
 
+### Calibration Feature Notes
+
+Capture USB device with
+
+```bash
+tshark -i usbmon1  -w output.pcap
+```
+
+Then filter by the device address. See the device address with `lsusb`.
+
+```bash
+usb.device_address == 11
+```
+
+In the calibration dialog UI user can set low and high voltage values. According
+to the manual these should be 1V for low and 4V for high. There is a calibration
+button next to each field separately. After done, user presses Ok to close the
+dialog.
+
+Frame structure is 10 bytes matching the existing protocol:
+
+```text
+[0xfa] [cmd] [sub] [voltage_h] [voltage_l] [0x00] [0x00] [0x00] [checksum] [0xf8]
+```
+
+Command byte is `0x04` (Calibrate — not yet in `CommandType` enum). Sub-command
+byte determines the operation. The voltage field uses the same `encode_base240`
+encoding as other commands, but is encoded in full mV instead of mV/10, giving
+1mV resolution.
+
+When setting high voltage and pressing calibrate, sub-command `0x01` is sent:
+
+```text
+3758mV → fa 04 01 0f 9e 00 00 00 94 f8   decode_base240(0x0f, 0x9e) = 3758
+3757mV → fa 04 01 0f 9d 00 00 00 97 f8   decode_base240(0x0f, 0x9d) = 3757
+3747mV → fa 04 01 0f 93 00 00 00 99 f8   decode_base240(0x0f, 0x93) = 3747
+```
+
+When OK is pressed to close the dialog, sub-command `0x04` is sent with no
+voltage data. This frame is the same regardless of the voltage that was set:
+
+```text
+fa 04 04 00 00 00 00 00 00 f8
+```
+
+The sub-command for the low voltage calibration point (1V reference) is still
+unknown — a capture of pressing calibrate on the low voltage field is needed.
+
 ## Important Notes
 
 The browser version uses WebUSB to communicate with the device. WebUSB is only
