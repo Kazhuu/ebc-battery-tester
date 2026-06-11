@@ -11,3 +11,8 @@ target_wasm
 
 # https://github.com/lycheeverse/lychee
 .lycheecache
+
+**/*.bin
+**/*.exe
+
+__pycache__/

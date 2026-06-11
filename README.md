@@ -15,6 +15,7 @@ The app is built with Rust using egui and eframe.
 These are missing features compared to the original Windows software.
 
 - Calibration support.
+- Firmware update.
 - Plot saving as an image.
 - Data exporting to CSV file.
 
@@ -34,6 +35,59 @@ tshark -i usbmon1 -w output.pcap
 
 ```bash
 usb.device_address == 11
+```
+
+### Firmware Update Notes
+
+The firmware update dialog requires the device to be disconnected from the
+app before opening. When the Identity button is pressed, the Windows software
+opens a direct serial connection to the CH340 and sends a single byte:
+
+```text
+0x7f
+```
+
+This is the **STM32/STM8 UART bootloader synchronization byte**. The firmware
+update uses the standard STM32/STM8 UART bootloader protocol over the existing
+CH340 serial link — no separate USB DFU mode. Based on the flat `0x0000` address
+space and absence of ARM Thumb patterns in flash, the MCU is likely an **STM8**.
+
+To enter bootloader mode without opening the device:
+
+1. Hold the mode ON button on the front panel
+2. Power on the device using the switch on the back
+3. The LCD skips the normal firmware info screen — the device is now in bootloader mode
+
+Captured identity exchange in bootloader mode:
+
+```text
+host → dev   7f              sync byte
+dev  → host  79              ACK — bootloader active
+host → dev   00 ff           GET command (0x00 + checksum 0xff)
+dev  → host  79 05 10 09 87 5a 10 4b 79
+             │  │  │  └─ 0x09 = EBC-A20 device type code
+             │  │  └─ bootloader version 1.0
+             │  └─ 5 data bytes follow
+             └─ ACK
+host → dev   11 ee           Read Memory command (0x11 + checksum 0xee)
+dev  → host  79              ACK — read protection is NOT enabled
+host → dev   00 00 40 02 42  address 0x00004002, checksum 0x42
+dev  → host  79              ACK
+host → dev   01 fe           read 2 bytes (0x01 + checksum 0xfe)
+dev  → host  79 45 45        ACK + data: 0x45 0x45
+```
+
+The GET response contains byte `0x09` which matches the EBC-A20 device type
+code in the source, which is how the Windows software populates the dropdown.
+The bootloader is custom (the command list `09 87 5a 10 4b` does not match
+standard STM32 commands) but uses the same framing and ACK/NACK protocol.
+
+Read protection is confirmed **not enabled** — the device returned real data
+from Read Memory. The full firmware can be dumped using `stm32flash` pointed
+at the CH340 serial port, or any custom script using the same protocol:
+
+```bash
+sudo stm32flash -b 9600 -m 8n1 -r firmware.bin /dev/ttyUSB0
 ```
 
 ### Calibration Feature Notes
@@ -80,7 +134,6 @@ is not sent. Does this save the actual values in the device or what does it do?
 Both charge and discharge modes send an elapsed-minutes counter to the device
 once per minute using command `0x0A`. The minute count is base240-encoded in
 payload bytes 1–2. The device does not respond beyond its normal report frames.
-Likely used to keep the device LCD timer in sync with the host.
 
 ```text
 1 min → fa 0a 00 01 00 00 00 00 0b f8
@@ -153,6 +206,30 @@ voltage comes from a prior firmware report; the loaded voltage comes from this
 response. The "0mR" result means the voltage drop was below the measurement
 resolution — either a low-impedance battery or the discharge pulse was too short
 to produce a measurable ΔV.
+
+## Firmware Extraction Scripts
+
+Two Python scripts in the project root are used for firmware reverse engineering.
+See [REVERSE_ENGINEERING.md](REVERSE_ENGINEERING.md) for full context.
+
+**`extract_firmware_from_exe.py`** — extracts all device firmware images from the
+Windows software. Each firmware is stored as a PE custom resource
+whose ID matches the device type code returned by the bootloader. Outputs one
+`.bin` file per device into `fw_out/`.
+
+```bash
+python3 extract_firmware_from_exe.py eb.exe fw_out/
+```
+
+**`extract_firmware.py`** — extracts firmware from a USB pcap captured during a
+live firmware update session. Parses Write Memory frames from the CH340 TX stream
+and reconstructs the flat binary image.
+
+```bash
+python3 extract_firmware.py firmware-update.pcap firmware_extracted.bin
+```
+
+Both scripts produce identical output for the EBC-A20: `fw_out/firmware_id9_EBC-A20.bin`.
 
 ## Important Notes
 
