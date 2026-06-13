@@ -207,6 +207,12 @@ response. The "0mR" result means the voltage drop was below the measurement
 resolution — either a low-impedance battery or the discharge pulse was too short
 to produce a measurable ΔV.
 
+## Frame Protocol Reference
+
+See [FRAMES.md](FRAMES.md) for a complete reference of all frame types the
+device supports, including command encoding, base240 value encoding, checksum
+calculation, and inbound status report layouts.
+
 ## Firmware Extraction Scripts
 
 Two Python scripts in the project root are used for firmware reverse engineering.

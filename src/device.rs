@@ -207,7 +207,7 @@ pub struct FirmwareReport {
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
     #[expect(unused)]
-    pub unknown: u16,
+    pub unknown: u16, // Always 0.
     pub firmware_version: String,
     // Calibration parameters, offset and gain maybe?
     #[expect(unused)]
@@ -224,7 +224,7 @@ pub struct ChargeReport {
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
     #[expect(unused)]
-    pub unknown: u16,
+    pub unknown: u16, // Always 0.
     #[expect(unused)]
     pub charge_current_ma: u16,
     #[expect(unused)]
@@ -241,7 +241,7 @@ pub struct DischargeConstantCurrentReport {
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
     #[expect(unused)]
-    pub unknown: u16,
+    pub unknown: u16, // Always 0.
     #[expect(unused)]
     pub discharge_current_ma: u16,
     #[expect(unused)]
@@ -258,7 +258,7 @@ pub struct DischargeConstantPowerReport {
     pub voltage_mv: u16,
     pub milli_ampere_hours: u16,
     #[expect(unused)]
-    pub unknown: u16,
+    pub unknown: u16, // Always 0.
     #[expect(unused)]
     pub discharge_power_w: u16,
     #[expect(unused)]
