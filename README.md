@@ -1,28 +1,39 @@
 # EBC-A20 Battery Tester
 
-This project is still a work in progress!
-
 Cross-platform desktop and browser application to control ZTE Tech EBC-A20
 battery tester.
 
 The deployed web app is available at
-[mauri.codes/ebc-battery-tester](https://mauri.codes/ebc-battery-tester).
+[mauri.codes/ebc-battery-tester](https://mauri.codes/ebc-battery-tester). Before
+using the web app, follow the [WebUSB setup](#access-usb-device-on-browser) for
+your OS to allow the browser to access the device.
 
-The app is built with Rust using egui and eframe.
+Native desktop binaries for Linux and Windows can be downloaded from the [GitHub
+releases page](https://github.com/Kazhuu/ebc-battery-tester/releases). This
+should work out of the box with default drivers. If you did the WebUSB setup
+above, you need undo that in order for native app to discover the serial port.
+
+Also check [Important Notes](#important-notes) before running the app.
+
+If you are interested about the protocol documentation, check [Frame
+Reference](#frame-reference).
+
+The app is built with Rust using [egui](https://github.com/emilk/egui) and
+[eframe](https://github.com/emilk/egui/tree/master/crates/eframe).
 
 ## Table of Contents
 
 - [EBC-A20 Battery Tester](#ebc-a20-battery-tester)
   - [Table of Contents](#table-of-contents)
-  - [TODO](#todo)
-  - [Reverse Engineering](#reverse-engineering)
-    - [General Notes](#general-notes)
-    - [Frame Reference](#frame-reference)
-    - [Firmware Extraction Scripts](#firmware-extraction-scripts)
+  - [Missing Features](#missing-features)
   - [Important Notes](#important-notes)
   - [Access USB Device on Browser](#access-usb-device-on-browser)
     - [Windows](#windows)
     - [Linux](#linux)
+  - [Reverse Engineering](#reverse-engineering)
+    - [General Notes](#general-notes)
+    - [Frame Reference](#frame-reference)
+    - [Firmware Extraction Scripts](#firmware-extraction-scripts)
   - [Development](#development)
     - [Native Target Locally](#native-target-locally)
     - [Web Locally](#web-locally)
@@ -33,12 +44,13 @@ The app is built with Rust using egui and eframe.
     - [Creating a Release](#creating-a-release)
   - [Important Resources](#important-resources)
 
-## TODO
+## Missing Features
 
 These are missing features compared to the original Windows software.
 
 - Calibration support.
 - Control multiple devices from one software session.
+- Cycles configuration.
 - Firmware update.
 - Plot saving as an image.
 - Data exporting to CSV file.
@@ -47,43 +59,6 @@ These are things that requires attention from development perspective
 
 - Add tests.
 - Split UI code to smaller pieces.
-
-## Reverse Engineering
-
-### General Notes
-
-See [REVERSE_ENGINEERING.md](REVERSE_ENGINEERING.md) for my reverse engineering
-notes.
-
-### Frame Reference
-
-See [FRAMES.md](FRAMES.md) for the complete frame format reference for EBC-A20
-model.
-
-### Firmware Extraction Scripts
-
-Two Python scripts in the project root help you to extract the original firmware
-in two ways.
-
-**`extract_firmware_from_exe.py`** — extracts all device firmware images from
-the Windows software exe file. The firmware files are not included in this repo
-for legal reason, but you can easily dump them on your own with this script.
-This will output the extracted firmware in `fw_out` folder in project root.
-
-```bash
-python3 extract_firmware_from_exe.py ebc-tester.exe
-```
-
-**`extract_firmware.py`** — extracts firmware from a Wireshark USB capture
-recorded during a live firmware update performed with the original Windows
-software. Feed it the `.pcap` file and it reconstructs the firmware binary.
-
-```bash
-python3 extract_firmware.py firmware-update.pcap firmware_extracted.bin
-```
-
-Both scripts produce identical output for the EBC-A20:
-`fw_out/firmware_id9_EBC-A20.bin`.
 
 ## Important Notes
 
@@ -96,6 +71,9 @@ supported. The cable has a built-in CH340 serial chip, even though the device
 end is a mini USB plug, so any regular mini USB cable will not work.
 
 ## Access USB Device on Browser
+
+This configuration is only needed if you run the app via web browser. Native
+apps work out of the box.
 
 By default WebUSB cannot access the device from the browser as OS driver has
 already claimed the device, locking the browser out. In order to use WebUSB, you
@@ -159,6 +137,43 @@ Now you should be able to connect to the serial port with WebUSB.
 This will prevent using the native app as it will not be able to connect to the
 USB port anymore. To restore the original behavior, just remove the udev rule
 added above.
+
+## Reverse Engineering
+
+### General Notes
+
+See [REVERSE_ENGINEERING.md](REVERSE_ENGINEERING.md) for my reverse engineering
+notes.
+
+### Frame Reference
+
+See [FRAMES.md](FRAMES.md) for the complete frame format reference for EBC-A20
+model.
+
+### Firmware Extraction Scripts
+
+Two Python scripts in the project root help you to extract the original firmware
+in two ways.
+
+**`extract_firmware_from_exe.py`** — extracts all device firmware images from
+the Windows software exe file. The firmware files are not included in this repo
+for legal reason, but you can easily dump them on your own with this script.
+This will output the extracted firmware in `fw_out` folder in project root.
+
+```bash
+python3 extract_firmware_from_exe.py ebc-tester.exe
+```
+
+**`extract_firmware.py`** — extracts firmware from a Wireshark USB capture
+recorded during a live firmware update performed with the original Windows
+software. Feed it the `.pcap` file and it reconstructs the firmware binary.
+
+```bash
+python3 extract_firmware.py firmware-update.pcap firmware_extracted.bin
+```
+
+Both scripts produce identical output for the EBC-A20:
+`fw_out/firmware_id9_EBC-A20.bin`.
 
 ## Development
 
