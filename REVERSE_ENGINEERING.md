@@ -8,6 +8,7 @@ The device communicates over a CH340 USB-serial adapter (VID `0x1A86`, PID `0x75
 - **Port:** `/dev/ttyUSB0` on Linux
 
 To enter bootloader mode:
+
 1. Hold the **mode ON button** on the front panel
 2. Flip the **power switch** on the back
 
@@ -20,6 +21,7 @@ The device stays in bootloader mode as long as it has power. Closing and re-open
 The bootloader uses the **STM32 UART bootloader protocol** (AN3155) verbatim, which strongly suggests the MCU is an **STM8** — STMicro's 8-bit family shares the exact same protocol including sync byte, command set, ACK/NACK values, and frame structure.
 
 Evidence for STM8:
+
 - Flat address space starting at `0x0000` (not `0x08000000` like STM32)
 - No ARM vector table at firmware start (`0x9000`)
 - No ARM Thumb instruction patterns found in any dumped region
@@ -28,7 +30,7 @@ Evidence for STM8:
 ### Frame structure
 
 | Step | Bytes sent | Response |
-|------|-----------|----------|
+| --- | --- | --- |
 | Sync | `7F` | `79` (ACK) |
 | Command | `cmd` `cmd^0xFF` | `79` (ACK) |
 | Address | 4 bytes big-endian + XOR checksum | `79` (ACK) |
@@ -38,7 +40,7 @@ Evidence for STM8:
 ### Commands
 
 | Command | Code | Complement |
-|---------|------|-----------|
+| --- | --- | --- |
 | GET | `00` | `FF` |
 | Read Memory | `11` | `EE` |
 | Write Memory | `31` | `CE` |
@@ -46,7 +48,7 @@ Evidence for STM8:
 
 ### GET response (EBC-A20)
 
-```
+```text
 05 10 09 87 5A 10 4B 79
 ```
 
@@ -56,7 +58,7 @@ Evidence for STM8:
 Device type codes from `eb.exe` resource IDs:
 
 | Code | Device |
-|------|--------|
+| --- | --- |
 | `0x06` | EBC-A10 |
 | `0x09` | EBC-A20 |
 | `0x24` | EBC-A40 |
@@ -69,7 +71,7 @@ Device type codes from `eb.exe` resource IDs:
 
 ## Flash Address Map
 
-```
+```text
 0x00000000 – 0x00008FFF   bootloader   (36 KB, heavily read-protected)
 0x00009000 – 0x0000BD0F   firmware     (11,536 bytes = 45 × 256-byte blocks)
 ```
@@ -91,7 +93,7 @@ To work around this: power cycle the device between read sessions and resume fro
 Even with correct power cycling, **four regions of the firmware are read-protected at the hardware level**. Each protected region returns a single repeated 256-byte dummy block for every read attempt, regardless of how many power cycles are performed:
 
 | Firmware offset | Flash address | Size | Status |
-|-----------------|--------------|------|--------|
+| --- | --- | --- | --- |
 | `0x0000–0x05FF` | `0x9000–0x95FF` | 1536 B | Readable |
 | `0x0600–0x0AFF` | `0x9600–0x9AFF` | 1280 B | **Protected** |
 | `0x0B00–0x11FF` | `0x9B00–0xA1FF` | 1792 B | Readable |
@@ -113,7 +115,7 @@ All readable bytes were verified to **match the firmware extracted from `eb.exe`
 A partial dump covering `0x0000–0x1A00` shows the bootloader region is also heavily protected:
 
 | Range | Content |
-|-------|---------|
+| --- | --- |
 | `0x0000–0x00FF` | Real bootloader code |
 | `0x0100–0x01FF` | Mostly erased flash |
 | `0x0200–0x06FF` | Protected (dummy block) |
@@ -130,13 +132,13 @@ The dump confirms the MCU is **not ARM**: no valid ARM Cortex-M vector table at 
 
 The Windows update tool embeds all device firmware images as **PE custom resources** in the `.rsrc` section. Each resource ID matches the device type code from the bootloader GET response.
 
-```
+```bash
 python3 extract_firmware_from_exe.py eb.exe fw_out/
 ```
 
 The EBC-A20 firmware is **resource ID 9** at PE file offset `0x145308`, size 11536 bytes. The bytes are written verbatim to flash — no encoding, no compression.
 
-Output: `fw_out/firmware_id9_EBC-A20.bin`  
+Output: `fw_out/firmware_id9_EBC-A20.bin`
 SHA-256: `30bf63bc6412fa671561e739c79c2fe85bab2fc77ccce9005955f95baa6d3d37`
 
 ---
@@ -145,7 +147,7 @@ SHA-256: `30bf63bc6412fa671561e739c79c2fe85bab2fc77ccce9005955f95baa6d3d37`
 
 Capture USB traffic during a firmware update with Wireshark (filter: `usb.idVendor == 0x1a86`). The Windows tool writes 128 bytes per block using Write Memory frames.
 
-```
+```bash
 python3 extract_firmware.py firmware-update.pcap firmware_extracted.bin
 ```
 
@@ -169,6 +171,7 @@ The Windows software checks the device version before updating by reading 2 byte
 The firmware at `0x9000` starts with `C7 45 F9 EF` repeated — not an ARM vector table. This is direct executable code for the MCU.
 
 Recommended tools:
+
 - **Ghidra** with STM8 processor module: [github.com/SergeyLys/ghidra_8051](https://github.com/SergeyLys/ghidra_8051)
 - **radare2**: `r2 -a stm8 -b 8 -m 0x9000 fw_out/firmware_id9_EBC-A20.bin`
 
