@@ -443,12 +443,16 @@ All outbound frames are 10 bytes: `[fa] [payload × 7] [chk] [f8]`.
 | `0a` | Timer sync | `00` | min_h | min_l | `00` | `00` | `00` |
 | `04` | Calibration | sub | val_h | val_l | `00` | `00` | `00` |
 
-**Field key:** `cur` = current (mA÷10, base240), `v` = cutoff voltage (mV÷10, base240),
-`pw` = power (W, base240), `t` = time limit in minutes (base240; 0 = no limit),
-`ci` = cutoff current (mA÷10, base240), `min` = elapsed minutes (base240),
-`sub` = calibration sub-command (0x00–0x04), `val` = calibration value (full mV/mA, base240).
+**Field key:**
 
----
+- `cur` — current (mA÷10, base240)
+- `v` — cutoff voltage (mV÷10, base240)
+- `pw` — power (W, base240)
+- `t` — time limit in minutes (base240; 0 = no limit)
+- `ci` — cutoff current (mA÷10, base240)
+- `min` — elapsed minutes (base240)
+- `sub` — calibration sub-command (0x00–0x04)
+- `val` — calibration value (full mV/mA, base240)
 
 ## Quick reference — inbound frames
 
@@ -461,12 +465,19 @@ All inbound frames are 19 bytes: `[fa] [payload × 16] [chk] [f8]`.
 | `01`/`0b`/`15` | CP discharge | cur | volt | mAh | ? | set pw | cutoff V | cutoff t | dev |
 | `02`/`0c`/`16` | CV charge | cur | volt | mAh | ? | set cur | set V | cutoff I | dev |
 
-**Field key:** `cur` = current (base240 × 10 → mA), `volt` = voltage (base240 → mV),
-`mAh` = capacity (base240 → mAh), `fw ver` = firmware version (base240, e.g. 302 → "3.0.2"),
-`set pw` = set discharge power (base240 → W), `cutoff t` = cutoff time (base240 → minutes),
-`dev` = device type code (raw byte), `?` = unknown, always 0 in observed frames except firmware
-report P11–P14 (constants 2988 and 2087, meaning unknown).
+**Field key:**
 
-**CC discharge cmd bytes:** `00` = idle, `0a` = active, `14` = finished.
-**CP discharge cmd bytes:** `01` = idle, `0b` = active, `15` = finished.
-**CV charge cmd bytes:** `02` = idle, `0c` = active, `16` = finished.
+- `cur` — current (base240 × 10 → mA)
+- `volt` — voltage (base240 → mV)
+- `mAh` — capacity (base240 → mAh)
+- `fw ver` — firmware version (base240, e.g. 302 → "3.0.2")
+- `set pw` — set discharge power (base240 → W)
+- `cutoff t` — cutoff time (base240 → minutes)
+- `dev` — device type code (raw byte)
+- `?` — unknown; always 0 in observed frames except firmware report P11–P14 (constants 2988 and 2087, meaning unknown)
+
+**Command bytes by mode:**
+
+- CC discharge — `00` idle, `0a` active, `14` finished
+- CP discharge — `01` idle, `0b` active, `15` finished
+- CV charge — `02` idle, `0c` active, `16` finished
