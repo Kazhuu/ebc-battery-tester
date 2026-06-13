@@ -238,7 +238,7 @@ cargo clippy --target wasm32-unknown-unknown
 3. Tag the commit with the matching version and push the tag:
 
 ```bash
-git tag v0.2.0
+git tag v<version>
 git push --tags
 ```
 
