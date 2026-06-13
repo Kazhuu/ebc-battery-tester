@@ -11,7 +11,36 @@ There is no USB HID or custom USB class involved — it is plain serial over USB
 
 Some fields remain unknown and are noted as such.
 
----
+## Table of Contents
+
+- [EBC-A20 Frame Reference](#ebc-a20-frame-reference)
+  - [Table of Contents](#table-of-contents)
+  - [Frame structure](#frame-structure)
+    - [Checksum](#checksum)
+  - [Base240 encoding](#base240-encoding)
+    - [Value scaling](#value-scaling)
+  - [Outbound frames (host → device)](#outbound-frames-host--device)
+    - [`0x05` Connect](#0x05-connect)
+    - [`0x06` Disconnect](#0x06-disconnect)
+    - [`0x02` Stop](#0x02-stop)
+    - [`0x01` Start Constant Current Discharge](#0x01-start-constant-current-discharge)
+    - [`0x07` Adjust Constant Current Discharge](#0x07-adjust-constant-current-discharge)
+    - [`0x08` Resume Constant Current Discharge](#0x08-resume-constant-current-discharge)
+    - [`0x11` Start Constant Power Discharge](#0x11-start-constant-power-discharge)
+    - [`0x18` Resume Constant Power Discharge](#0x18-resume-constant-power-discharge)
+    - [`0x21` Start Constant Voltage Charge](#0x21-start-constant-voltage-charge)
+    - [`0x28` Resume Constant Voltage Charge](#0x28-resume-constant-voltage-charge)
+    - [`0x0A` Timer sync](#0x0a-timer-sync)
+    - [`0x09` Internal resistance test](#0x09-internal-resistance-test)
+    - [`0x04` Calibration](#0x04-calibration)
+  - [Inbound frames (device → host)](#inbound-frames-device--host)
+    - [Firmware report](#firmware-report)
+    - [Constant current discharge report](#constant-current-discharge-report)
+    - [Constant power discharge report](#constant-power-discharge-report)
+    - [Constant voltage charge report](#constant-voltage-charge-report)
+  - [Device type codes](#device-type-codes)
+  - [Quick reference — outbound frames](#quick-reference--outbound-frames)
+  - [Quick reference — inbound frames](#quick-reference--inbound-frames)
 
 ## Frame structure
 
@@ -54,8 +83,6 @@ payload  = [0x01, 0x00, 0x14, 0x01, 0x5a, 0x00, 0x00]
 checksum = 0x01 ^ 0x00 ^ 0x14 ^ 0x01 ^ 0x5a ^ 0x00 ^ 0x00 = 0x4b  ✓
 ```
 
----
-
 ## Base240 encoding
 
 Numeric values that could be larger than one byte are encoded across two bytes
@@ -83,8 +110,6 @@ range:
 | Power | W (no scaling) | 5 W → encode 5 |
 | Time | minutes (no scaling) | 90 min → encode 90 |
 | Calibration values | full mV or mA | 1000 mV → encode 1000 |
-
----
 
 ## Outbound frames (host → device)
 
@@ -277,8 +302,6 @@ Confirm              → fa 04 04 00 00 00 00 00 00 f8
 *(The 3747/3758 mV values above were captured from a test session using a
 battery rather than a precision reference — not a proper calibration.)*
 
----
-
 ## Inbound frames (device → host)
 
 The device sends 19-byte status reports periodically. Which report type is sent
@@ -389,8 +412,6 @@ Payload layout:
 | `[13–14]` | Set cutoff current | base240 → mA |
 | `[15]` | Device type code | raw byte |
 
----
-
 ## Device type codes
 
 Byte `[15]` of every inbound frame identifies the connected model. Additional
@@ -401,8 +422,6 @@ codes exist in the Windows update tool but have not been observed over the wire.
 | `0x05` | EBC-A05 |
 | `0x06` | EBC-A10H |
 | `0x09` | EBC-A20 |
-
----
 
 ## Quick reference — outbound frames
 

@@ -1,5 +1,31 @@
 # EBC-A20 Firmware Reverse Engineering Notes
 
+## Table of Contents
+
+- [EBC-A20 Firmware Reverse Engineering Notes](#ebc-a20-firmware-reverse-engineering-notes)
+  - [Table of Contents](#table-of-contents)
+  - [Connection](#connection)
+  - [Bootloader Protocol](#bootloader-protocol)
+    - [Frame structure](#frame-structure)
+    - [Commands](#commands)
+    - [GET response (EBC-A20)](#get-response-ebc-a20)
+  - [Flash Address Map](#flash-address-map)
+  - [Firmware Dump via Read Memory](#firmware-dump-via-read-memory)
+    - [Per-power-cycle read limit](#per-power-cycle-read-limit)
+    - [Flash read protection](#flash-read-protection)
+  - [Bootloader Region (`0x0000–0x8FFF`)](#bootloader-region-0x00000x8fff)
+  - [Firmware Extraction from `eb.exe`](#firmware-extraction-from-ebexe)
+  - [Firmware Extraction from USB pcap](#firmware-extraction-from-usb-pcap)
+  - [Firmware Identity Check](#firmware-identity-check)
+  - [Architecture Notes for Reverse Engineering](#architecture-notes-for-reverse-engineering)
+  - [USB Traffic Capture](#usb-traffic-capture)
+  - [Calibration Feature Notes](#calibration-feature-notes)
+  - [Timer Sync Notes](#timer-sync-notes)
+  - [Constant Current Charge Notes](#constant-current-charge-notes)
+  - [Discharge Constant Current Notes](#discharge-constant-current-notes)
+  - [Discharge Constant Power Notes](#discharge-constant-power-notes)
+  - [Internal Resistance Test Notes](#internal-resistance-test-notes)
+
 ## Connection
 
 The device communicates over a CH340 USB-serial adapter (VID `0x1A86`, PID `0x7523`).
@@ -178,3 +204,151 @@ Recommended tools:
 Set the base address to `0x9000` when loading the firmware binary, as that is where it is mapped in the device's flat address space.
 
 The firmware binary from `eb.exe` is authoritative — the readable dump regions match it exactly and the protected regions cannot be extracted via the bootloader interface.
+
+---
+
+## USB Traffic Capture
+
+To capture new application-level frames, record USB traffic with tshark while
+the device is connected via the CH340:
+
+```bash
+tshark -i usbmon1 -w output.pcap
+```
+
+Then filter by device address in Wireshark (find the address first with `lsusb`):
+
+```text
+usb.device_address == 11
+```
+
+---
+
+## Calibration Feature Notes
+
+The calibration dialog has four reference point fields: low voltage, high
+voltage, low current and high current. According to the manual the voltage
+references should be 1 V and 4 V. Each field has its own calibrate button, and
+pressing OK at the end closes the dialog.
+
+All calibration frames use command byte `0x04` and follow the same 10-byte
+frame structure as other commands. The sub-command byte in the second position
+selects the operation:
+
+| Sub-cmd | Operation             | Data    |
+|---------|-----------------------|---------|
+| `0x00`  | Set low voltage ref   | full mV |
+| `0x01`  | Set high voltage ref  | full mV |
+| `0x02`  | Set low current ref   | full mA |
+| `0x03`  | Set high current ref  | full mA |
+| `0x04`  | Confirm/close dialog  | —       |
+
+The value is base240-encoded in bytes 3–4, using full mV or mA instead of the
+mV/10 and mA/10 scaling used by other commands.
+
+```text
+[0xfa] [0x04] [sub] [value_h] [value_l] [0x00] [0x00] [0x00] [checksum] [0xf8]
+```
+
+Captured frames:
+
+```text
+Low voltage  3747mV → fa 04 00 0f 93 00 00 00 98 f8
+High voltage 3758mV → fa 04 01 0f 9e 00 00 00 94 f8
+Low current  3000mA → fa 04 02 0c 78 00 00 00 72 f8
+High current 3001mA → fa 04 03 0c 79 00 00 00 72 f8
+Confirm             → fa 04 04 00 00 00 00 00 00 f8
+```
+
+The dialog also has a cancel button. When pressed, the confirm frame is not
+sent. Whether the device discards the previously sent reference values in that
+case has not yet been tested.
+
+---
+
+## Timer Sync Notes
+
+Both charge and discharge modes send an elapsed-minutes counter to the device
+once per minute using command `0x0A`. The minute count is base240-encoded in
+payload bytes 1–2. The device does not respond beyond its normal report frames.
+
+```text
+1 min → fa 0a 00 01 00 00 00 00 0b f8
+2 min → fa 0a 00 02 00 00 00 00 08 f8
+3 min → fa 0a 00 03 00 00 00 00 09 f8
+```
+
+---
+
+## Constant Current Charge Notes
+
+Settings cannot be adjusted while charging is active.
+
+Resume charge with 3 A, 4.2 V, cutoff 0.1 A uses command `0x28`:
+
+```text
+fa 28 01 3c 01 b4 00 0a aa f8
+```
+
+---
+
+## Discharge Constant Current Notes
+
+Settings can be adjusted on the fly using command `0x07`
+(`AdjustDischargeConstantCurrent`). Encoding is the same as the start command:
+current in mA/10, cutoff voltage in mV/10, time in minutes, all base240.
+
+```text
+200mA, 3.3V cutoff, no time limit → fa 07 00 14 01 5a 00 00 48 f8
+```
+
+Resume after stop uses command `0x08`. Despite the current
+`StopConstantCurrentDischarge` label in the code, the captured frame includes
+current, cutoff voltage and time parameters — it behaves like a resume/continue
+rather than a plain stop.
+
+```text
+100mA, 3.3V cutoff, no time limit → fa 08 00 0a 01 5a 00 00 59 f8
+```
+
+---
+
+## Discharge Constant Power Notes
+
+Settings cannot be adjusted on the fly in this mode. Resume after stop uses
+command `0x18` (`Continue`) with power in W, cutoff voltage in mV/10, and time
+in minutes. The existing `continue_command()` in the code sends hardcoded zeros
+for these parameters and is likely wrong.
+
+```text
+1W, 3.3V cutoff, no time limit → fa 18 00 01 01 5a 00 00 42 f8
+```
+
+---
+
+## Internal Resistance Test Notes
+
+The Windows software has a dialog where the user inputs a test current in mA
+and presses Test. Command `0x09` triggers a brief discharge at that current.
+The current is encoded the same way as discharge commands: mA/10, base240.
+
+```text
+ 200mA → fa 09 00 14 00 00 00 00 1d f8
+1000mA → fa 09 00 64 00 00 00 00 6d f8
+2000mA → fa 09 00 c8 00 00 00 00 c1 f8
+```
+
+The device responds with a discharge off-report containing the battery voltage
+measured under load, then the fan spins briefly.
+
+```text
+fa 01 00 00 0f 93 00 09 00 00 00 01 01 5a 00 00 09 c7 f8
+→ voltage=3747mV, current=0mA, mAh=9, power=1W, cutoff=3300mV
+```
+
+The Windows software calculates internal resistance from two consecutive voltage
+readings: `R = (V_open_circuit − V_under_load) / I`. The pre-test open-circuit
+voltage comes from a prior firmware report; the loaded voltage comes from this
+response. A result of 0 mΩ means the voltage drop was below measurement
+resolution — either a very low impedance battery or the pulse was too short to
+produce a measurable ΔV.
