@@ -130,11 +130,11 @@ pub enum OutboundFrame {
     StopConstantCurrentDischarge,
     // Calibration sub-commands (command byte 0x04). Values are in full mV or mA,
     // not divided by 10 like other commands.
-    CalibrateVoltageLow(u16),   // low voltage reference in mV
-    CalibrateVoltageHigh(u16),  // high voltage reference in mV
-    CalibrateCurrentLow(u16),   // low current reference in mA
-    CalibrateCurrentHigh(u16),  // high current reference in mA
-    CalibrateConfirm,           // writes all four reference values to device storage
+    CalibrateVoltageLow(u16),  // low voltage reference in mV
+    CalibrateVoltageHigh(u16), // high voltage reference in mV
+    CalibrateCurrentLow(u16),  // low current reference in mA
+    CalibrateCurrentHigh(u16), // high current reference in mA
+    CalibrateConfirm,          // writes all four reference values to device storage
 }
 
 impl std::convert::From<OutboundFrame> for [u8; OUTBOUND_FRAME_SIZE] {

@@ -855,6 +855,7 @@ impl MainApp {
         }
     }
 
+    #[expect(clippy::too_many_lines)]
     fn calibrate_window_ui(&mut self, ui: &egui::Ui) {
         if self.open_calibration_window {
             egui::Window::new("Calibrate")

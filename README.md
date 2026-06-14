@@ -48,7 +48,6 @@ The app is built with Rust using [egui](https://github.com/emilk/egui) and
 
 These are missing features compared to the original Windows software.
 
-- Calibration support.
 - Control multiple devices from one software session.
 - Cycles configuration.
 - Firmware update.
