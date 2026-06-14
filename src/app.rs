@@ -901,11 +901,16 @@ impl MainApp {
                     });
                     ui.separator();
                     ui.heading("Current");
+                    let discharge_active = self.mode_on
+                        && matches!(
+                            self.current_device_mode,
+                            Some(device::DeviceMode::DischargeConstantCurrent)
+                        );
                     ui.label(
-                        "Connect a battery and start a charge session at a known \
-                             current (~0.5 A low, ~2 A high). Place a multimeter in \
-                             series to measure the actual current, enter the measured \
-                             value and press Calibrate.",
+                        "Start a constant current discharge session at a known reference \
+                             level (~0.5 A for low, ~2 A for high). Place a multimeter in \
+                             series to measure the actual current. Enter the measured value \
+                             and press Calibrate.",
                     );
                     ui.add_space(4.0);
                     egui::Grid::new("calibrate_current_grid").show(ui, |ui| {
@@ -918,7 +923,13 @@ impl MainApp {
                                 .max_decimals(3)
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
                         );
-                        if ui.button("Calibrate").clicked() {
+                        if ui
+                            .add_enabled(discharge_active, egui::Button::new("Calibrate"))
+                            .on_disabled_hover_text(
+                                "Start a discharge constant current session first",
+                            )
+                            .clicked()
+                        {
                             let ma = (self.calibrate_current_low * 1000.0) as u16;
                             self.send_cmd(OutboundFrame::CalibrateCurrentLow(ma), ui.ctx());
                         }
@@ -932,13 +943,26 @@ impl MainApp {
                                 .max_decimals(3)
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
                         );
-                        if ui.button("Calibrate").clicked() {
+                        if ui
+                            .add_enabled(discharge_active, egui::Button::new("Calibrate"))
+                            .on_disabled_hover_text(
+                                "Start a discharge constant current session first",
+                            )
+                            .clicked()
+                        {
                             let ma = (self.calibrate_current_high * 1000.0) as u16;
                             self.send_cmd(OutboundFrame::CalibrateCurrentHigh(ma), ui.ctx());
                         }
                         ui.end_row();
                     });
                     ui.separator();
+                    ui.label(
+                        "Each Calibrate button sends the reference value to the device \
+                         immediately. Values are held in RAM and will be lost on the \
+                         next power cycle. Press OK to write all values to permanent \
+                         device storage.",
+                    );
+                    ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("Cancel").clicked() {

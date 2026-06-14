@@ -260,9 +260,11 @@ High current 3001mA → fa 04 03 0c 79 00 00 00 72 f8
 Confirm             → fa 04 04 00 00 00 00 00 00 f8
 ```
 
-The dialog also has a cancel button. When pressed, the confirm frame is not
-sent. Whether the device discards the previously sent reference values in that
-case has not yet been tested.
+Sub-commands `0x00`–`0x03` write reference values to device RAM only. They take
+effect immediately but are lost on the next power cycle. Sub-command `0x04`
+(Confirm) commits all four values to non-volatile storage. Cancelling the dialog
+without sending `0x04` leaves any already-sent values active in RAM until the
+next power cycle, after which the previous stored calibration is restored.
 
 ---
 

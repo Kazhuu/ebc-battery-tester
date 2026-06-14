@@ -138,15 +138,15 @@ it does not wait to be asked. The report type changes to reflect whatever the
 device is currently doing.
 
 When the PC first connects, the device sends both the firmware report and the
-normal mode-specific status report interleaved for a few seconds, then stops
-sending the firmware report and continues with only the mode-specific report.
+normal mode-specific status report interleaved for approximately 15 seconds, then
+stops sending the firmware report and continues with only the mode-specific report.
 
 A typical CC discharge session:
 
 ```text
 host → fa 05 00 00 00 00 00 00 05 f8    Connect (device LCD shows '-PC-')
-dev  → fa 64/65/66/6e/6f/70 ...         Firmware report  ┐ interleaved for a
-dev  → fa 00/01/02 ...                  Idle report      ┘ few seconds, then
+dev  → fa 64/65/66/6e/6f/70 ...         Firmware report  ┐ interleaved for ~15 s,
+dev  → fa 00/01/02 ...                  Idle report      ┘ then
 dev  → fa 00/01/02 ...                  Idle report only (firmware report stops)
 host → fa 01 00 14 01 5a 00 00 4b f8    Start CC discharge: 200 mA, 3.3 V cutoff
 dev  → fa 0a ...                        CC active report (live current/voltage/mAh)
@@ -357,11 +357,12 @@ the device input, then send the corresponding sub-command with the actual
 reference value. According to the manual, the intended voltage reference points
 are **1 V** (low) and **4 V** (high).
 
-Each reference value is sent to the device individually as you click each
-"Calibrate" button in the dialog. Sub-command `0x04` is sent when the dialog is
-closed with OK. It is not yet confirmed whether the device discards the
-previously sent reference values if the dialog is closed without sending this
-confirm frame. This behaviour has not been tested.
+Each reference value is sent to the device individually (sub-commands `0x00`–`0x03`).
+These writes are stored in device RAM only — they take effect immediately but are
+lost on the next power cycle. Sub-command `0x04` (Confirm) must be sent to commit
+all four values to non-volatile device storage. Closing the dialog without sending
+`0x04` leaves the values active until the device is power-cycled, after which the
+previous calibration is restored.
 
 ```text
 [fa] [04] [sub] [value_h] [value_l] [00] [00] [00] [checksum] [f8]
@@ -409,7 +410,7 @@ operating with (so the host always knows what settings are active).
 
 ### Firmware report
 
-Sent for a few seconds immediately after the device connects to the PC,
+Sent for approximately 15 seconds immediately after the device connects to the PC,
 regardless of the current operating mode. It carries the firmware version string
 and two unknown constant values whose meaning has not been determined. After
 those initial seconds the device switches to the mode-specific reports below and
