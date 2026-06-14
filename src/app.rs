@@ -12,6 +12,8 @@ use egui_plot::VPlacement;
 use futures::channel::mpsc;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 
+const PIXELS_PER_POINT: f32 = 1.7;
+
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct MainApp {
@@ -117,6 +119,7 @@ impl MainApp {
         } else {
             Default::default()
         };
+        cc.egui_ctx.set_pixels_per_point(PIXELS_PER_POINT);
         let (cmd_tx, cmd_rx) = mpsc::unbounded::<OutboundFrame>();
         let (event_tx, event_rx) = mpsc::unbounded::<DeviceEvent>();
         usb::spawn_device_worker(cc.egui_ctx.clone(), cmd_rx, event_tx.clone());
@@ -732,7 +735,7 @@ impl MainApp {
             });
     }
 
-    fn calibrate_window_ui(&mut self, ui: &mut egui::Ui) {
+    fn calibrate_window_ui(&mut self, ui: &egui::Ui) {
         if self.open_calibration_window {
             egui::Window::new("Calibrate")
                 .collapsible(false)
@@ -847,7 +850,6 @@ impl eframe::App for MainApp {
             }
 
             self.calibrate_window_ui(ui);
-            self.control_ui(ui);
             self.usb_ui(ui);
             ui.push_id("control_section", |ui| {
                 if self.status == ConnectionStatus::Connected {
