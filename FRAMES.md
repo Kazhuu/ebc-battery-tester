@@ -581,6 +581,27 @@ All inbound frames are 19 bytes: `[fa] [payload × 16] [chk] [f8]`.
 
 **Command bytes by mode:**
 
-- CC discharge: `00` idle, `0a` active, `14` finished
-- CP discharge: `01` idle, `0b` active, `15` finished
-- CV charge: `02` idle, `0c` active, `16` finished
+Each mode has three states. Idle means the mode was last used but nothing is
+running. Active means an operation is in progress. Finished means the device
+stopped on its own because a cutoff condition was met.
+
+| Mode | Idle | Active | Finished |
+| --- | --- | --- | --- |
+| CC discharge | `00` | `0a` | `14` |
+| CP discharge | `01` | `0b` | `15` |
+| CV charge | `02` | `0c` | `16` |
+
+**Firmware report command bytes:**
+
+The firmware report uses a separate set of command bytes that encode which mode
+was active at the time the PC connected. There is no "finished" state for
+firmware reports.
+
+| Cmd byte | Meaning |
+| --- | --- |
+| `64` | Idle or finished — last mode was CC discharge |
+| `65` | Idle or finished — last mode was CP discharge |
+| `66` | Idle or finished — last mode was CV charge |
+| `6e` | Active — CC discharge running |
+| `6f` | Active — CP discharge running |
+| `70` | Active — CV charge running |
