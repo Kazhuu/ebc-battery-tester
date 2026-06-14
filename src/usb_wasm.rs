@@ -1,4 +1,6 @@
-use crate::device::{ConnectionStatus, DeviceEvent, OutboundFrame, UsbDeviceInfo};
+use crate::device::{
+    ConnectionStatus, DeviceEvent, OUTBOUND_FRAME_SIZE, OutboundFrame, UsbDeviceInfo,
+};
 use futures::FutureExt as _;
 use futures::StreamExt as _;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -213,8 +215,8 @@ async fn reading_task(
                     let result: web_sys::UsbInTransferResult = value.unchecked_into();
                     if let Some(data) = result.data() {
                         buf.extend_from_slice(&js_sys::Uint8Array::new(&data.buffer()).to_vec());
-                        for frame in crate::device::process_buffer(&mut buf) {
-                            event_tx.unbounded_send(DeviceEvent::Frame(frame)).ok();
+                        for (frame, raw) in crate::device::process_buffer(&mut buf) {
+                            event_tx.unbounded_send(DeviceEvent::Frame(frame, raw)).ok();
                             ctx.request_repaint();
                         }
                     }
@@ -331,7 +333,7 @@ async fn connect(device_index: usize) -> Result<UsbState, String> {
         .await
         .map_err(|e| format!("Failed to claim interface {interface_num}: {e:?}"))?;
 
-    let mut bytes: [u8; 10] = OutboundFrame::Connect(device_index).into();
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] = OutboundFrame::Connect(device_index).into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
@@ -348,7 +350,7 @@ async fn connect(device_index: usize) -> Result<UsbState, String> {
 
 async fn disconnect(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
     log::info!("Disconnecting from device...");
-    let mut bytes: [u8; 10] = OutboundFrame::Disconnect.into();
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] = OutboundFrame::Disconnect.into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
@@ -360,7 +362,7 @@ async fn disconnect(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result
 }
 
 async fn stop(device: &web_sys::UsbDevice, out_endpoint_num: u8) -> Result<(), JsValue> {
-    let mut bytes: [u8; 10] = OutboundFrame::Stop.into();
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] = OutboundFrame::Stop.into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
@@ -377,7 +379,7 @@ async fn start_constant_current_discharge(
     cutoff_mv: u16,
     cutoff_time_min: u16,
 ) -> Result<(), JsValue> {
-    let mut bytes: [u8; 10] =
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] =
         OutboundFrame::StartConstantCurrentDischarge(current_ma, cutoff_mv, cutoff_time_min).into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
@@ -395,7 +397,7 @@ async fn start_constant_power_discharge(
     cutoff_mv: u16,
     cutoff_time_min: u16,
 ) -> Result<(), JsValue> {
-    let mut bytes: [u8; 10] =
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] =
         OutboundFrame::StartConstantPowerDischarge(power_w, cutoff_mv, cutoff_time_min).into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
@@ -413,7 +415,7 @@ async fn start_constant_voltage_charge(
     cutoff_mv: u16,
     cutoff_current_ma: u16,
 ) -> Result<(), JsValue> {
-    let mut bytes: [u8; 10] =
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] =
         OutboundFrame::StartConstantVoltageCharge(current_ma, cutoff_mv, cutoff_current_ma).into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
@@ -428,7 +430,7 @@ async fn continue_command(
     device: &web_sys::UsbDevice,
     out_endpoint_num: u8,
 ) -> Result<(), JsValue> {
-    let mut bytes: [u8; 10] = OutboundFrame::Continue.into();
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] = OutboundFrame::Continue.into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
@@ -442,7 +444,7 @@ async fn stop_constant_current_discharge(
     device: &web_sys::UsbDevice,
     out_endpoint_num: u8,
 ) -> Result<(), JsValue> {
-    let mut bytes: [u8; 10] = OutboundFrame::StopConstantCurrentDischarge.into();
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] = OutboundFrame::StopConstantCurrentDischarge.into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;

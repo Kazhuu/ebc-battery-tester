@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 
 pub const VENDOR_ID: u16 = 0x1A86;
 
-pub const MAX_FRAME_SIZE: usize = 19;
+pub const INBOUND_FRAME_SIZE: usize = 19;
+pub const OUTBOUND_FRAME_SIZE: usize = 10;
 
 // Start of Frame (SOF) and End of Frame (EOF) bytes.
 pub const START_BYTE: u8 = 0xfa;
@@ -129,7 +130,7 @@ pub enum OutboundFrame {
     StopConstantCurrentDischarge,
 }
 
-impl std::convert::From<OutboundFrame> for [u8; 10] {
+impl std::convert::From<OutboundFrame> for [u8; OUTBOUND_FRAME_SIZE] {
     fn from(frame: OutboundFrame) -> Self {
         match frame {
             OutboundFrame::Connect(_) => connect_command(),
@@ -364,10 +365,10 @@ impl TryFrom<&[u8]> for InboundFrame {
     type Error = String;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if value.len() != MAX_FRAME_SIZE {
+        if value.len() != INBOUND_FRAME_SIZE {
             return Err(format!(
                 "Frame length mismatch: expected {}, got {}",
-                MAX_FRAME_SIZE,
+                INBOUND_FRAME_SIZE,
                 value.len()
             ));
         }
@@ -439,7 +440,7 @@ pub enum DeviceEvent {
     StatusChanged(ConnectionStatus),
     // Vec of available devices.
     DevicesUpdated(Vec<UsbDeviceInfo>),
-    Frame(InboundFrame),
+    Frame(InboundFrame, Vec<u8>),
 }
 
 impl std::fmt::Debug for DeviceEvent {
@@ -447,14 +448,14 @@ impl std::fmt::Debug for DeviceEvent {
         match self {
             Self::StatusChanged(s) => f.debug_tuple("StatusChanged").field(s).finish(),
             Self::DevicesUpdated(d) => f.debug_tuple("DevicesUpdated").field(d).finish(),
-            Self::Frame(frame) => {
+            Self::Frame(frame, _) => {
                 write!(f, "Frame({frame:?})")
             }
         }
     }
 }
 
-pub fn process_buffer(buf: &mut Vec<u8>) -> Vec<InboundFrame> {
+pub fn process_buffer(buf: &mut Vec<u8>) -> Vec<(InboundFrame, Vec<u8>)> {
     let mut frames = Vec::new();
     loop {
         if let Some(start) = buf.iter().position(|&b| b == START_BYTE) {
@@ -467,9 +468,9 @@ pub fn process_buffer(buf: &mut Vec<u8>) -> Vec<InboundFrame> {
         }
         if let Some(end) = buf[1..].iter().position(|&b| b == END_BYTE) {
             let frame_end = end + 2; // +1 for slice offset, +1 for inclusive
-            let frame = buf.drain(..frame_end).collect::<Vec<u8>>();
-            match InboundFrame::try_from(frame.as_slice()) {
-                Ok(f) => frames.push(f),
+            let raw = buf.drain(..frame_end).collect::<Vec<u8>>();
+            match InboundFrame::try_from(raw.as_slice()) {
+                Ok(f) => frames.push((f, raw)),
                 Err(e) => log::warn!("Failed to parse frame: {e}"),
             }
         } else {
@@ -499,8 +500,8 @@ fn xor_checksum(data: &[u8]) -> u8 {
     data.iter().fold(0, |acc, &b| acc ^ b)
 }
 
-fn build_frame(payload: [u8; 7]) -> [u8; 10] {
-    let mut frame = [0u8; 10];
+fn build_frame(payload: [u8; 7]) -> [u8; OUTBOUND_FRAME_SIZE] {
+    let mut frame = [0u8; OUTBOUND_FRAME_SIZE];
     frame[0] = START_BYTE;
     frame[1..8].copy_from_slice(&payload);
     frame[8] = xor_checksum(&payload);
@@ -508,7 +509,7 @@ fn build_frame(payload: [u8; 7]) -> [u8; 10] {
     frame
 }
 
-fn connect_command() -> [u8; 10] {
+fn connect_command() -> [u8; OUTBOUND_FRAME_SIZE] {
     build_frame([
         CommmandType::Connect as u8,
         0x00,
@@ -520,7 +521,7 @@ fn connect_command() -> [u8; 10] {
     ])
 }
 
-fn disconnect_command() -> [u8; 10] {
+fn disconnect_command() -> [u8; OUTBOUND_FRAME_SIZE] {
     build_frame([
         CommmandType::Disconnect as u8,
         0x00,
@@ -532,11 +533,11 @@ fn disconnect_command() -> [u8; 10] {
     ])
 }
 
-fn stop_command() -> [u8; 10] {
+fn stop_command() -> [u8; OUTBOUND_FRAME_SIZE] {
     build_frame([CommmandType::Stop as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
 }
 
-fn continue_command() -> [u8; 10] {
+fn continue_command() -> [u8; OUTBOUND_FRAME_SIZE] {
     build_frame([
         CommmandType::Continue as u8,
         0x00,
@@ -548,7 +549,7 @@ fn continue_command() -> [u8; 10] {
     ])
 }
 
-fn stop_constant_current_discharge_command() -> [u8; 10] {
+fn stop_constant_current_discharge_command() -> [u8; OUTBOUND_FRAME_SIZE] {
     build_frame([
         CommmandType::StopConstantCurrentDischarge as u8,
         0x00,
@@ -564,7 +565,7 @@ fn start_constant_current_discharge_command(
     current_ma: u16,
     cutoff_mv: u16,
     cutoff_time_min: u16,
-) -> [u8; 10] {
+) -> [u8; OUTBOUND_FRAME_SIZE] {
     assert!(
         (MIN_DISCHARGE_CURRENT_MA..=MAX_DISCHARGE_CURRENT_MA).contains(&current_ma),
         "Current must be between {MIN_DISCHARGE_CURRENT_MA}mA and {MAX_DISCHARGE_CURRENT_MA}mA"
@@ -596,7 +597,7 @@ fn start_constant_power_discharge_command(
     power_w: u16,
     cutoff_mv: u16,
     cutoff_time_min: u16,
-) -> [u8; 10] {
+) -> [u8; OUTBOUND_FRAME_SIZE] {
     assert!(
         (MIN_POWER_W..=MAX_POWER_W).contains(&power_w),
         "Watts must be between {MIN_POWER_W}W and {MAX_POWER_W}W"
@@ -628,7 +629,7 @@ fn start_constant_voltage_charge_command(
     current_ma: u16,
     charge_voltage_mv: u16,
     cutoff_current_ma: u16,
-) -> [u8; 10] {
+) -> [u8; OUTBOUND_FRAME_SIZE] {
     assert!(
         (MIN_CHARGE_CURRENT_MA..=MAX_CHARGE_CURRENT_MA).contains(&current_ma),
         "Current must be between {MIN_CHARGE_CURRENT_MA}mA and {MAX_CHARGE_CURRENT_MA}mA"

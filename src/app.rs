@@ -1,17 +1,7 @@
 use crate::device;
+use crate::export::{LogDirection, LogEntry, save_log_to_file};
 use crate::usb;
 use device::{ConnectionStatus, DeviceEvent, OutboundFrame};
-
-enum LogDirection {
-    In,
-    Out,
-}
-
-struct LogEntry {
-    direction: LogDirection,
-    label: String,
-    timestamp: f64,
-}
 use egui_plot::AxisHints;
 use egui_plot::HPlacement;
 use egui_plot::Legend;
@@ -22,8 +12,6 @@ use egui_plot::PlotPoints;
 use egui_plot::VPlacement;
 use futures::channel::mpsc;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-
-const PIXELS_PER_POINT: f32 = 1.7;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
@@ -139,7 +127,6 @@ impl MainApp {
         } else {
             Default::default()
         };
-        cc.egui_ctx.set_pixels_per_point(PIXELS_PER_POINT);
         let (cmd_tx, cmd_rx) = mpsc::unbounded::<OutboundFrame>();
         let (event_tx, event_rx) = mpsc::unbounded::<DeviceEvent>();
         usb::spawn_device_worker(cc.egui_ctx.clone(), cmd_rx, event_tx.clone());
@@ -151,10 +138,12 @@ impl MainApp {
     }
 
     fn send_cmd(&mut self, frame: OutboundFrame, ctx: &egui::Context) {
+        let raw_bytes: Vec<u8> = <[u8; device::OUTBOUND_FRAME_SIZE]>::from(frame.clone()).to_vec();
         self.log_entries.push(LogEntry {
             direction: LogDirection::Out,
             label: format!("{frame:?}"),
             timestamp: ctx.input(|i| i.time),
+            raw_bytes,
         });
         self.cmd_tx.unbounded_send(frame).ok();
     }
@@ -264,12 +253,13 @@ impl MainApp {
                         self.selected_device_index = None;
                     }
                 }
-                DeviceEvent::Frame(frame) => {
+                DeviceEvent::Frame(frame, raw_bytes) => {
                     log::info!("Received frame: {frame:?}");
                     self.log_entries.push(LogEntry {
                         direction: LogDirection::In,
                         label: format!("{frame:?}"),
                         timestamp: ctx.input(|i| i.time),
+                        raw_bytes,
                     });
                     match frame {
                         device::InboundFrame::Firmware(firmware_report) => {
@@ -811,10 +801,14 @@ impl MainApp {
                         if ui.button("Clear").clicked() {
                             self.log_entries.clear();
                         }
+                        if ui.button("Save").clicked() {
+                            save_log_to_file(&self.log_entries);
+                        }
                     });
                     ui.separator();
                     egui::ScrollArea::vertical()
                         .stick_to_bottom(true)
+                        .auto_shrink([false, false])
                         .show(ui, |ui| {
                             for entry in &self.log_entries {
                                 let (prefix, color) = match entry.direction {
@@ -825,11 +819,17 @@ impl MainApp {
                                         ("OUT", egui::Color32::from_rgb(100, 150, 255))
                                     }
                                 };
+                                let hex: String = entry
+                                    .raw_bytes
+                                    .iter()
+                                    .map(|b| format!("{b:02x}"))
+                                    .collect::<Vec<_>>()
+                                    .join(" ");
+                                let t = entry.timestamp as u64;
+                                let hours = t / 3600;
+                                let mins = (t % 3600) / 60;
+                                let secs = t % 60;
                                 ui.horizontal(|ui| {
-                                    let t = entry.timestamp as u64;
-                                    let hours = t / 3600;
-                                    let mins = (t % 3600) / 60;
-                                    let secs = t % 60;
                                     ui.label(
                                         egui::RichText::new(format!(
                                             "{hours:02}:{mins:02}:{secs:02}"
@@ -837,9 +837,18 @@ impl MainApp {
                                         .monospace()
                                         .weak(),
                                     );
-                                    ui.colored_label(color, prefix);
+                                    ui.colored_label(
+                                        color,
+                                        egui::RichText::new(prefix).monospace(),
+                                    );
                                     ui.label(&entry.label);
                                 });
+                                ui.label(
+                                    egui::RichText::new(format!("             {hex}"))
+                                        .monospace()
+                                        .weak(),
+                                );
+                                ui.add_space(2.0);
                             }
                         });
                 });
@@ -969,10 +978,6 @@ impl eframe::App for MainApp {
                     self.control_ui(ui);
                 }
             });
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                powered_by_egui_and_eframe(ui);
-                egui::warn_if_debug_build(ui);
-            });
         });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -991,18 +996,4 @@ fn format_duration(total_seconds: f64) -> String {
     } else {
         format!("{m:02}:{s:02}")
     }
-}
-
-fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        ui.label("Powered by ");
-        ui.hyperlink_to("egui", "https://github.com/emilk/egui");
-        ui.label(" and ");
-        ui.hyperlink_to(
-            "eframe",
-            "https://github.com/emilk/egui/tree/master/crates/eframe",
-        );
-        ui.label(".");
-    });
 }

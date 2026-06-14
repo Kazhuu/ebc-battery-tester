@@ -8,4 +8,5 @@ mod usb;
 
 mod app;
 mod device;
+mod export;
 pub use app::MainApp;

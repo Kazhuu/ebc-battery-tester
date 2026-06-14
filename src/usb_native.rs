@@ -1,6 +1,8 @@
 use std::io::{Read as _, Write as _};
 
-use crate::device::{ConnectionStatus, DeviceEvent, OutboundFrame, UsbDeviceInfo};
+use crate::device::{
+    ConnectionStatus, DeviceEvent, OUTBOUND_FRAME_SIZE, OutboundFrame, UsbDeviceInfo,
+};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use serialport::SerialPortType;
 
@@ -58,7 +60,7 @@ fn connect(idx: usize) -> Result<Box<dyn serialport::SerialPort>, String> {
         .timeout(std::time::Duration::from_millis(10))
         .open()
         .map_err(|e| format!("Failed to open {name}: {e}"))?;
-    let bytes: [u8; 10] = OutboundFrame::Connect(idx).into();
+    let bytes: [u8; OUTBOUND_FRAME_SIZE] = OutboundFrame::Connect(idx).into();
     port.write_all(&bytes)
         .map_err(|e| format!("Failed to send connect command: {e}"))?;
     Ok(port)
@@ -103,7 +105,7 @@ fn device_thread(
                 }
                 Ok(OutboundFrame::Disconnect) => {
                     if let Some(ref mut p) = port {
-                        let bytes: [u8; 10] = OutboundFrame::Disconnect.into();
+                        let bytes: [u8; OUTBOUND_FRAME_SIZE] = OutboundFrame::Disconnect.into();
                         if let Err(e) = p.write_all(&bytes) {
                             log::error!("Failed to send disconnect frame: {e}");
                         }
@@ -117,7 +119,7 @@ fn device_thread(
                 }
                 Ok(frame) => {
                     if let Some(ref mut p) = port {
-                        let bytes: [u8; 10] = frame.into();
+                        let bytes: [u8; OUTBOUND_FRAME_SIZE] = frame.into();
                         if let Err(e) = p.write_all(&bytes) {
                             log::error!("Failed to send frame: {e}");
                         }
@@ -132,8 +134,8 @@ fn device_thread(
             match p.read(&mut temp_buffer) {
                 Ok(n) if n > 0 => {
                     buffer.extend_from_slice(&temp_buffer[..n]);
-                    for frame in crate::device::process_buffer(&mut buffer) {
-                        event_tx.unbounded_send(DeviceEvent::Frame(frame)).ok();
+                    for (frame, raw) in crate::device::process_buffer(&mut buffer) {
+                        event_tx.unbounded_send(DeviceEvent::Frame(frame, raw)).ok();
                         ctx.request_repaint();
                     }
                 }
