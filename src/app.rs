@@ -368,32 +368,43 @@ impl MainApp {
     }
 
     fn discharge_constant_current_ui(&mut self, ui: &mut egui::Ui) {
-        ui.label("Discharge Current:");
-        ui.add(
-            egui::Slider::new(
-                &mut self.discharge_current,
-                device::MIN_DISCHARGE_CURRENT_MA as f32 / 1000.0
-                    ..=device::MAX_DISCHARGE_CURRENT_MA as f32 / 1000.0,
-            )
-            .suffix(" A"),
-        );
-        ui.label("Cutoff Voltage:");
-        ui.add(
-            egui::Slider::new(
-                &mut self.discharge_cutoff_voltage,
-                device::MIN_VOLTAGE_MV as f32 / 1000.0..=device::MAX_VOLTAGE_MV as f32 / 1000.0,
-            )
-            .suffix(" V"),
-        );
-        ui.label("Cutoff Time:");
-        ui.add(
-            egui::Slider::new(
-                &mut self.discharge_time,
-                device::MIN_CUTOFF_TIME_MIN..=device::MAX_CUTOFF_TIME_MIN,
-            )
-            .suffix(" min")
-            .text("Indefinite if 0"),
-        );
+        ui.horizontal(|ui| {
+            ui.label("Discharge Current:");
+            ui.add(
+                egui::DragValue::new(&mut self.discharge_current)
+                    .range(
+                        device::MIN_DISCHARGE_CURRENT_MA as f32 / 1000.0
+                            ..=device::MAX_DISCHARGE_CURRENT_MA as f32 / 1000.0,
+                    )
+                    .suffix(" A")
+                    .speed(0.005)
+                    .max_decimals(2)
+                    .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Cutoff Voltage:");
+            ui.add(
+                egui::DragValue::new(&mut self.discharge_cutoff_voltage)
+                    .range(
+                        device::MIN_VOLTAGE_MV as f32 / 1000.0
+                            ..=device::MAX_VOLTAGE_MV as f32 / 1000.0,
+                    )
+                    .suffix(" V")
+                    .speed(0.005)
+                    .max_decimals(2)
+                    .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Cutoff Time:");
+            ui.add(
+                egui::DragValue::new(&mut self.discharge_time)
+                    .range(device::MIN_CUTOFF_TIME_MIN..=device::MAX_CUTOFF_TIME_MIN)
+                    .suffix(" min")
+                    .speed(1.0),
+            );
+        });
         ui.horizontal(|ui| {
             if self.mode_on {
                 if ui.button("Stop").clicked() {
@@ -441,31 +452,38 @@ impl MainApp {
     }
 
     fn discharge_constant_power_ui(&mut self, ui: &mut egui::Ui) {
-        ui.label("Discharge Power:");
-        ui.add(
-            egui::Slider::new(
-                &mut self.discharge_watts,
-                device::MIN_POWER_W..=device::MAX_POWER_W,
-            )
-            .suffix(" W"),
-        );
-        ui.label("Cutoff Voltage:");
-        ui.add(
-            egui::Slider::new(
-                &mut self.discharge_cutoff_voltage,
-                device::MIN_VOLTAGE_MV as f32 / 1000.0..=device::MAX_VOLTAGE_MV as f32 / 1000.0,
-            )
-            .suffix(" V"),
-        );
-        ui.label("Cutoff Time:");
-        ui.add(
-            egui::Slider::new(
-                &mut self.discharge_time,
-                device::MIN_CUTOFF_TIME_MIN..=device::MAX_CUTOFF_TIME_MIN,
-            )
-            .suffix(" min")
-            .text("Indefinite if 0"),
-        );
+        ui.horizontal(|ui| {
+            ui.label("Discharge Power:");
+            ui.add(
+                egui::DragValue::new(&mut self.discharge_watts)
+                    .range(device::MIN_POWER_W..=device::MAX_POWER_W)
+                    .suffix(" W")
+                    .speed(1.0),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Cutoff Voltage:");
+            ui.add(
+                egui::DragValue::new(&mut self.discharge_cutoff_voltage)
+                    .range(
+                        device::MIN_VOLTAGE_MV as f32 / 1000.0
+                            ..=device::MAX_VOLTAGE_MV as f32 / 1000.0,
+                    )
+                    .suffix(" V")
+                    .speed(0.005)
+                    .max_decimals(2)
+                    .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Cutoff Time:");
+            ui.add(
+                egui::DragValue::new(&mut self.discharge_time)
+                    .range(device::MIN_CUTOFF_TIME_MIN..=device::MAX_CUTOFF_TIME_MIN)
+                    .suffix(" min")
+                    .speed(1.0),
+            );
+        });
         ui.horizontal(|ui| {
             if self.mode_on {
                 if ui.button("Stop").clicked() {
@@ -512,32 +530,48 @@ impl MainApp {
     }
 
     fn charge_constant_voltage_ui(&mut self, ui: &mut egui::Ui) {
-        ui.label("Charge Current:");
-        ui.add(
-            egui::Slider::new(
-                &mut self.charge_current,
-                device::MIN_CHARGE_CURRENT_MA as f32 / 1000.0
-                    ..=device::MAX_CHARGE_CURRENT_MA as f32 / 1000.0,
-            )
-            .suffix(" A"),
-        );
-        ui.label("Charge Voltage:");
-        ui.add(
-            egui::Slider::new(
-                &mut self.charge_voltage,
-                device::MIN_VOLTAGE_MV as f32 / 1000.0..=device::MAX_VOLTAGE_MV as f32 / 1000.0,
-            )
-            .suffix(" V"),
-        );
-        ui.label("Cutoff Current:");
-        ui.add(
-            egui::Slider::new(
-                &mut self.charge_cutoff_current,
-                device::MIN_CHARGE_CUTOFF_CURRENT_MA as f32 / 1000.0
-                    ..=device::MAX_CHARGE_CUTOFF_CURRENT_MA as f32 / 1000.0,
-            )
-            .suffix(" A"),
-        );
+        ui.horizontal(|ui| {
+            ui.label("Charge Current:");
+            ui.add(
+                egui::DragValue::new(&mut self.charge_current)
+                    .suffix(" A")
+                    .range(
+                        device::MIN_CHARGE_CURRENT_MA as f32 / 1000.0
+                            ..=device::MAX_CHARGE_CURRENT_MA as f32 / 1000.0,
+                    )
+                    .speed(0.005)
+                    .max_decimals(2)
+                    .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Charge Voltage:");
+            ui.add(
+                egui::DragValue::new(&mut self.charge_voltage)
+                    .range(
+                        device::MIN_VOLTAGE_MV as f32 / 1000.0
+                            ..=device::MAX_VOLTAGE_MV as f32 / 1000.0,
+                    )
+                    .suffix(" V")
+                    .speed(0.005)
+                    .max_decimals(2)
+                    .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Cutoff Current:");
+            ui.add(
+                egui::DragValue::new(&mut self.charge_cutoff_current)
+                    .range(
+                        device::MIN_CHARGE_CUTOFF_CURRENT_MA as f32 / 1000.0
+                            ..=device::MAX_CHARGE_CUTOFF_CURRENT_MA as f32 / 1000.0,
+                    )
+                    .suffix(" A")
+                    .speed(0.005)
+                    .max_decimals(2)
+                    .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
+            );
+        });
         ui.horizontal(|ui| {
             if self.mode_on {
                 if ui.button("Stop").clicked() {
@@ -586,18 +620,20 @@ impl MainApp {
     fn control_ui(&mut self, ui: &mut egui::Ui) {
         ui.separator();
         ui.heading("Control");
-        ui.label("Device Mode:");
-        egui::ComboBox::from_id_salt("device_mode_selector")
-            .selected_text(self.selected_device_mode.to_string())
-            .show_ui(ui, |ui| {
-                for mode in [
-                    device::DeviceMode::DischargeConstantCurrent,
-                    device::DeviceMode::DischargeConstantPower,
-                    device::DeviceMode::ChargeConstantVoltage,
-                ] {
-                    ui.selectable_value(&mut self.selected_device_mode, mode, mode.to_string());
-                }
-            });
+        ui.horizontal(|ui| {
+            ui.label("Mode:");
+            egui::ComboBox::from_id_salt("device_mode_selector")
+                .selected_text(self.selected_device_mode.to_string())
+                .show_ui(ui, |ui| {
+                    for mode in [
+                        device::DeviceMode::DischargeConstantCurrent,
+                        device::DeviceMode::DischargeConstantPower,
+                        device::DeviceMode::ChargeConstantVoltage,
+                    ] {
+                        ui.selectable_value(&mut self.selected_device_mode, mode, mode.to_string());
+                    }
+                });
+        });
         match self.selected_device_mode {
             device::DeviceMode::DischargeConstantCurrent => {
                 self.discharge_constant_current_ui(ui);
@@ -658,7 +694,7 @@ impl MainApp {
             });
     }
 
-    fn calibrate_ui(&mut self, ui: &mut egui::Ui) {
+    fn calibrate_window_ui(&mut self, ui: &mut egui::Ui) {
         if self.open_calibration_window {
             egui::Window::new("Calibrate")
                 .collapsible(false)
@@ -772,7 +808,8 @@ impl eframe::App for MainApp {
                 self.open_calibration_window = true;
             }
 
-            self.calibrate_ui(ui);
+            self.calibrate_window_ui(ui);
+            self.control_ui(ui);
             self.usb_ui(ui);
             ui.push_id("control_section", |ui| {
                 if self.status == ConnectionStatus::Connected {
