@@ -193,6 +193,19 @@ async fn device_task(
                     log::error!("Failed to send stop constant current discharge command: {e:?}");
                 }
             }
+            Some(
+                frame @ (OutboundFrame::CalibrateVoltageLow(_)
+                | OutboundFrame::CalibrateVoltageHigh(_)
+                | OutboundFrame::CalibrateCurrentLow(_)
+                | OutboundFrame::CalibrateCurrentHigh(_)
+                | OutboundFrame::CalibrateConfirm),
+            ) => {
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
+                    && let Err(e) = send_frame(device, ep, frame).await
+                {
+                    log::error!("Failed to send calibration command: {e:?}");
+                }
+            }
             None => break,
         }
     }
@@ -451,5 +464,20 @@ async fn stop_constant_current_discharge(
     JsFuture::from(promise)
         .await
         .map_err(|e| format!("Stop constant current discharge command failed: {e:?}"))?;
+    Ok(())
+}
+
+async fn send_frame(
+    device: &web_sys::UsbDevice,
+    out_endpoint_num: u8,
+    frame: OutboundFrame,
+) -> Result<(), JsValue> {
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] = frame.into();
+    let promise = device
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
+        .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
+    JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("Frame send failed: {e:?}"))?;
     Ok(())
 }
