@@ -966,7 +966,14 @@ impl eframe::App for MainApp {
             egui::MenuBar::new().ui(ui, |ui| {
                 egui::widgets::global_theme_preference_buttons(ui);
                 ui.separator();
-                if ui.button("Calibrate").clicked() {
+                if ui
+                    .add_enabled(
+                        self.status == ConnectionStatus::Connected && has_live_voltage(self),
+                        egui::Button::new("Calibrate"),
+                    )
+                    .on_disabled_hover_text("Connect the device to a battery first")
+                    .clicked()
+                {
                     self.open_calibration_window = true;
                 }
                 ui.separator();
