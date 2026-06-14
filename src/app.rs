@@ -1,6 +1,16 @@
 use crate::device;
 use crate::usb;
 use device::{ConnectionStatus, DeviceEvent, OutboundFrame};
+
+enum LogDirection {
+    In,
+    Out,
+}
+
+struct LogEntry {
+    direction: LogDirection,
+    label: String,
+}
 use egui_plot::AxisHints;
 use egui_plot::HPlacement;
 use egui_plot::Legend;
@@ -64,6 +74,10 @@ pub struct MainApp {
     #[serde(skip)]
     open_about_window: bool,
     #[serde(skip)]
+    open_log_window: bool,
+    #[serde(skip)]
+    log_entries: Vec<LogEntry>,
+    #[serde(skip)]
     calibrate_voltage_low: f32,
     #[serde(skip)]
     calibrate_voltage_high: f32,
@@ -103,6 +117,8 @@ impl Default for MainApp {
             mode_start_time: None,
             open_calibration_window: false,
             open_about_window: false,
+            open_log_window: false,
+            log_entries: Vec::new(),
             calibrate_voltage_low: 0.0,
             calibrate_voltage_high: 0.0,
             calibrate_current_low: 0.0,
@@ -131,6 +147,14 @@ impl MainApp {
         app.event_rx = event_rx;
         app.event_tx = event_tx;
         app
+    }
+
+    fn send_cmd(&mut self, frame: OutboundFrame) {
+        self.log_entries.push(LogEntry {
+            direction: LogDirection::Out,
+            label: format!("{frame:?}"),
+        });
+        self.cmd_tx.unbounded_send(frame).ok();
     }
 
     fn handle_firmware_report(&mut self, firmware_report_struct: device::FirmwareReport) {
@@ -240,6 +264,10 @@ impl MainApp {
                 }
                 DeviceEvent::Frame(frame) => {
                     log::info!("Received frame: {frame:?}");
+                    self.log_entries.push(LogEntry {
+                        direction: LogDirection::In,
+                        label: format!("{frame:?}"),
+                    });
                     match frame {
                         device::InboundFrame::Firmware(firmware_report) => {
                             self.handle_firmware_report(firmware_report);
@@ -302,7 +330,7 @@ impl MainApp {
                     if let Some(idx) = self.selected_device_index
                         && ui.button("Connect").clicked()
                     {
-                        self.cmd_tx.unbounded_send(OutboundFrame::Connect(idx)).ok();
+                        self.send_cmd(OutboundFrame::Connect(idx));
                     }
                 }
                 ConnectionStatus::Connecting => {
@@ -311,7 +339,7 @@ impl MainApp {
                 }
                 ConnectionStatus::Connected => {
                     if ui.button("Disconnect").clicked() {
-                        self.cmd_tx.unbounded_send(OutboundFrame::Disconnect).ok();
+                        self.send_cmd(OutboundFrame::Disconnect);
                     }
                 }
                 ConnectionStatus::Error(msg) => {
@@ -320,7 +348,7 @@ impl MainApp {
                     if let Some(idx) = self.selected_device_index
                         && ui.button("Retry").clicked()
                     {
-                        self.cmd_tx.unbounded_send(OutboundFrame::Connect(idx)).ok();
+                        self.send_cmd(OutboundFrame::Connect(idx));
                     }
                 }
             }
@@ -421,7 +449,7 @@ impl MainApp {
         ui.horizontal(|ui| {
             if self.mode_on {
                 if ui.button("Stop").clicked() {
-                    self.cmd_tx.unbounded_send(OutboundFrame::Stop).ok();
+                    self.send_cmd(OutboundFrame::Stop);
                     self.mode_on = false;
                 }
             } else if ui
@@ -429,17 +457,15 @@ impl MainApp {
                 .on_disabled_hover_text("Connect the device to a battery first")
                 .clicked()
             {
-                self.cmd_tx
-                    .unbounded_send(OutboundFrame::StartConstantCurrentDischarge(
-                        (self.discharge_current * 1000.0) as u16,
-                        (self.discharge_cutoff_voltage * 1000.0) as u16,
-                        if self.discharge_time_enabled {
-                            self.discharge_time
-                        } else {
-                            device::MIN_CUTOFF_TIME_MIN
-                        },
-                    ))
-                    .ok();
+                self.send_cmd(OutboundFrame::StartConstantCurrentDischarge(
+                    (self.discharge_current * 1000.0) as u16,
+                    (self.discharge_cutoff_voltage * 1000.0) as u16,
+                    if self.discharge_time_enabled {
+                        self.discharge_time
+                    } else {
+                        device::MIN_CUTOFF_TIME_MIN
+                    },
+                ));
                 self.mode_on = true;
                 self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
                 self.voltage_points.clear();
@@ -452,17 +478,15 @@ impl MainApp {
                 )
                 .clicked()
             {
-                self.cmd_tx
-                    .unbounded_send(OutboundFrame::StartConstantCurrentDischarge(
-                        (self.discharge_current * 1000.0) as u16,
-                        (self.discharge_cutoff_voltage * 1000.0) as u16,
-                        if self.discharge_time_enabled {
-                            self.discharge_time
-                        } else {
-                            device::MIN_CUTOFF_TIME_MIN
-                        },
-                    ))
-                    .ok();
+                self.send_cmd(OutboundFrame::StartConstantCurrentDischarge(
+                    (self.discharge_current * 1000.0) as u16,
+                    (self.discharge_cutoff_voltage * 1000.0) as u16,
+                    if self.discharge_time_enabled {
+                        self.discharge_time
+                    } else {
+                        device::MIN_CUTOFF_TIME_MIN
+                    },
+                ));
                 self.mode_on = true;
                 if self.mode_start_time.is_none() {
                     self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
@@ -511,7 +535,7 @@ impl MainApp {
         ui.horizontal(|ui| {
             if self.mode_on {
                 if ui.button("Stop").clicked() {
-                    self.cmd_tx.unbounded_send(OutboundFrame::Stop).ok();
+                    self.send_cmd(OutboundFrame::Stop);
                     self.mode_on = false;
                 }
             } else if ui
@@ -519,17 +543,15 @@ impl MainApp {
                 .on_disabled_hover_text("Connect device to battery first")
                 .clicked()
             {
-                self.cmd_tx
-                    .unbounded_send(OutboundFrame::StartConstantPowerDischarge(
-                        self.discharge_watts,
-                        (self.discharge_cutoff_voltage * 1000.0) as u16,
-                        if self.discharge_time_enabled {
-                            self.discharge_time
-                        } else {
-                            device::MIN_CUTOFF_TIME_MIN
-                        },
-                    ))
-                    .ok();
+                self.send_cmd(OutboundFrame::StartConstantPowerDischarge(
+                    self.discharge_watts,
+                    (self.discharge_cutoff_voltage * 1000.0) as u16,
+                    if self.discharge_time_enabled {
+                        self.discharge_time
+                    } else {
+                        device::MIN_CUTOFF_TIME_MIN
+                    },
+                ));
                 self.mode_on = true;
                 self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
                 self.voltage_points.clear();
@@ -542,17 +564,15 @@ impl MainApp {
                 )
                 .clicked()
             {
-                self.cmd_tx
-                    .unbounded_send(OutboundFrame::StartConstantPowerDischarge(
-                        self.discharge_watts,
-                        (self.discharge_cutoff_voltage * 1000.0) as u16,
-                        if self.discharge_time_enabled {
-                            self.discharge_time
-                        } else {
-                            device::MIN_CUTOFF_TIME_MIN
-                        },
-                    ))
-                    .ok();
+                self.send_cmd(OutboundFrame::StartConstantPowerDischarge(
+                    self.discharge_watts,
+                    (self.discharge_cutoff_voltage * 1000.0) as u16,
+                    if self.discharge_time_enabled {
+                        self.discharge_time
+                    } else {
+                        device::MIN_CUTOFF_TIME_MIN
+                    },
+                ));
                 self.mode_on = true;
                 if self.mode_start_time.is_none() {
                     self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
@@ -606,7 +626,7 @@ impl MainApp {
         ui.horizontal(|ui| {
             if self.mode_on {
                 if ui.button("Stop").clicked() {
-                    self.cmd_tx.unbounded_send(OutboundFrame::Stop).ok();
+                    self.send_cmd(OutboundFrame::Stop);
                     self.mode_on = false;
                 }
             } else if ui
@@ -614,13 +634,11 @@ impl MainApp {
                 .on_disabled_hover_text("Connect device to battery first")
                 .clicked()
             {
-                self.cmd_tx
-                    .unbounded_send(OutboundFrame::StartConstantVoltageCharge(
-                        (self.charge_current * 1000.0) as u16,
-                        (self.charge_voltage * 1000.0) as u16,
-                        (self.charge_cutoff_current * 1000.0) as u16,
-                    ))
-                    .ok();
+                self.send_cmd(OutboundFrame::StartConstantVoltageCharge(
+                    (self.charge_current * 1000.0) as u16,
+                    (self.charge_voltage * 1000.0) as u16,
+                    (self.charge_cutoff_current * 1000.0) as u16,
+                ));
                 self.mode_on = true;
                 self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
                 self.voltage_points.clear();
@@ -633,13 +651,11 @@ impl MainApp {
                 )
                 .clicked()
             {
-                self.cmd_tx
-                    .unbounded_send(OutboundFrame::StartConstantVoltageCharge(
-                        (self.charge_current * 1000.0) as u16,
-                        (self.charge_voltage * 1000.0) as u16,
-                        (self.charge_cutoff_current * 1000.0) as u16,
-                    ))
-                    .ok();
+                self.send_cmd(OutboundFrame::StartConstantVoltageCharge(
+                    (self.charge_current * 1000.0) as u16,
+                    (self.charge_voltage * 1000.0) as u16,
+                    (self.charge_cutoff_current * 1000.0) as u16,
+                ));
                 self.mode_on = true;
                 if self.mode_start_time.is_none() {
                     self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
@@ -769,6 +785,42 @@ impl MainApp {
         }
     }
 
+    fn log_window_ui(&mut self, ui: &egui::Ui) {
+        if self.open_log_window {
+            egui::Window::new("Frame Log")
+                .open(&mut self.open_log_window)
+                .resizable(true)
+                .default_size([500.0, 300.0])
+                .show(ui.ctx(), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{} entries", self.log_entries.len()));
+                        if ui.button("Clear").clicked() {
+                            self.log_entries.clear();
+                        }
+                    });
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            for entry in &self.log_entries {
+                                let (prefix, color) = match entry.direction {
+                                    LogDirection::In => {
+                                        ("IN ", egui::Color32::from_rgb(100, 200, 100))
+                                    }
+                                    LogDirection::Out => {
+                                        ("OUT", egui::Color32::from_rgb(100, 150, 255))
+                                    }
+                                };
+                                ui.horizontal(|ui| {
+                                    ui.colored_label(color, prefix);
+                                    ui.label(&entry.label);
+                                });
+                            }
+                        });
+                });
+        }
+    }
+
     fn calibrate_window_ui(&mut self, ui: &egui::Ui) {
         if self.open_calibration_window {
             egui::Window::new("Calibrate")
@@ -871,6 +923,10 @@ impl eframe::App for MainApp {
                     self.open_calibration_window = true;
                 }
                 ui.separator();
+                if ui.button("Log").clicked() {
+                    self.open_log_window = !self.open_log_window;
+                }
+                ui.separator();
                 if ui.button("About").clicked() {
                     self.open_about_window = true;
                 }
@@ -880,6 +936,7 @@ impl eframe::App for MainApp {
         egui::Panel::left("left_panel").show_inside(ui, |ui| {
             self.about_window_ui(ui);
             self.calibrate_window_ui(ui);
+            self.log_window_ui(ui);
             self.usb_ui(ui);
             ui.push_id("control_section", |ui| {
                 if self.status == ConnectionStatus::Connected {

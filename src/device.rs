@@ -92,7 +92,7 @@ impl std::fmt::Display for DeviceMode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum OutboundFrame {
     // Send connect command to the device. This will display '-PC-' on the LCD
     // screen. The usize is the index of the device to connect to.
