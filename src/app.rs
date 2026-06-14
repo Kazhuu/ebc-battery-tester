@@ -56,7 +56,7 @@ pub struct MainApp {
     charge_voltage: f32,
     charge_cutoff_current: f32,
     #[serde(skip)]
-    open_calibration_dialog: bool,
+    open_calibration_window: bool,
     #[serde(skip)]
     calibrate_voltage_low: f32,
     #[serde(skip)]
@@ -94,7 +94,7 @@ impl Default for MainApp {
             voltage_points: Vec::new(),
             amperes_points: Vec::new(),
             mode_start_time: None,
-            open_calibration_dialog: false,
+            open_calibration_window: false,
             calibrate_voltage_low: 0.0,
             calibrate_voltage_high: 0.0,
             calibrate_current_low: 0.0,
@@ -659,7 +659,7 @@ impl MainApp {
     }
 
     fn calibrate_ui(&mut self, ui: &mut egui::Ui) {
-        if self.open_calibration_dialog {
+        if self.open_calibration_window {
             egui::Window::new("Calibrate")
                 .collapsible(false)
                 .resizable(false)
@@ -677,7 +677,7 @@ impl MainApp {
                         ui.add(
                             egui::DragValue::new(&mut self.calibrate_voltage_low)
                                 .suffix(" V")
-                                .range(0.0..=f32::MAX)
+                                .range(0.0..=device::MAX_VOLTAGE_MV as f32 / 1000.0)
                                 .speed(0.001)
                                 .max_decimals(3)
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
@@ -689,7 +689,7 @@ impl MainApp {
                         ui.add(
                             egui::DragValue::new(&mut self.calibrate_voltage_high)
                                 .suffix(" V")
-                                .range(0.0..=f32::MAX)
+                                .range(0.0..=device::MAX_VOLTAGE_MV as f32 / 1000.0)
                                 .speed(0.001)
                                 .max_decimals(3)
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
@@ -710,7 +710,7 @@ impl MainApp {
                         ui.add(
                             egui::DragValue::new(&mut self.calibrate_current_low)
                                 .suffix(" A")
-                                .range(0.0..=f32::MAX)
+                                .range(0.0..=device::MAX_CHARGE_CURRENT_MA as f32 / 1000.0)
                                 .speed(0.001)
                                 .max_decimals(3)
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
@@ -722,7 +722,7 @@ impl MainApp {
                         ui.add(
                             egui::DragValue::new(&mut self.calibrate_current_high)
                                 .suffix(" A")
-                                .range(0.0..=f32::MAX)
+                                .range(0.0..=device::MAX_CHARGE_CURRENT_MA as f32 / 1000.0)
                                 .speed(0.001)
                                 .max_decimals(3)
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
@@ -733,10 +733,10 @@ impl MainApp {
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("Cancel").clicked() {
-                                self.open_calibration_dialog = false;
+                                self.open_calibration_window = false;
                             }
                             if ui.button("OK").clicked() {
-                                self.open_calibration_dialog = false;
+                                self.open_calibration_window = false;
                             }
                         });
                     });
@@ -769,7 +769,7 @@ impl eframe::App for MainApp {
 
         egui::Panel::left("left_panel").show_inside(ui, |ui| {
             if ui.button("Calibrate").clicked() {
-                self.open_calibration_dialog = true;
+                self.open_calibration_window = true;
             }
 
             self.calibrate_ui(ui);
