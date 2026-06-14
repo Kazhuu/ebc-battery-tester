@@ -10,6 +10,7 @@ enum LogDirection {
 struct LogEntry {
     direction: LogDirection,
     label: String,
+    timestamp: f64,
 }
 use egui_plot::AxisHints;
 use egui_plot::HPlacement;
@@ -149,10 +150,11 @@ impl MainApp {
         app
     }
 
-    fn send_cmd(&mut self, frame: OutboundFrame) {
+    fn send_cmd(&mut self, frame: OutboundFrame, ctx: &egui::Context) {
         self.log_entries.push(LogEntry {
             direction: LogDirection::Out,
             label: format!("{frame:?}"),
+            timestamp: ctx.input(|i| i.time),
         });
         self.cmd_tx.unbounded_send(frame).ok();
     }
@@ -267,6 +269,7 @@ impl MainApp {
                     self.log_entries.push(LogEntry {
                         direction: LogDirection::In,
                         label: format!("{frame:?}"),
+                        timestamp: ctx.input(|i| i.time),
                     });
                     match frame {
                         device::InboundFrame::Firmware(firmware_report) => {
@@ -330,7 +333,7 @@ impl MainApp {
                     if let Some(idx) = self.selected_device_index
                         && ui.button("Connect").clicked()
                     {
-                        self.send_cmd(OutboundFrame::Connect(idx));
+                        self.send_cmd(OutboundFrame::Connect(idx), ui.ctx());
                     }
                 }
                 ConnectionStatus::Connecting => {
@@ -339,7 +342,7 @@ impl MainApp {
                 }
                 ConnectionStatus::Connected => {
                     if ui.button("Disconnect").clicked() {
-                        self.send_cmd(OutboundFrame::Disconnect);
+                        self.send_cmd(OutboundFrame::Disconnect, ui.ctx());
                     }
                 }
                 ConnectionStatus::Error(msg) => {
@@ -348,7 +351,7 @@ impl MainApp {
                     if let Some(idx) = self.selected_device_index
                         && ui.button("Retry").clicked()
                     {
-                        self.send_cmd(OutboundFrame::Connect(idx));
+                        self.send_cmd(OutboundFrame::Connect(idx), ui.ctx());
                     }
                 }
             }
@@ -449,7 +452,7 @@ impl MainApp {
         ui.horizontal(|ui| {
             if self.mode_on {
                 if ui.button("Stop").clicked() {
-                    self.send_cmd(OutboundFrame::Stop);
+                    self.send_cmd(OutboundFrame::Stop, ui.ctx());
                     self.mode_on = false;
                 }
             } else if ui
@@ -457,15 +460,18 @@ impl MainApp {
                 .on_disabled_hover_text("Connect the device to a battery first")
                 .clicked()
             {
-                self.send_cmd(OutboundFrame::StartConstantCurrentDischarge(
-                    (self.discharge_current * 1000.0) as u16,
-                    (self.discharge_cutoff_voltage * 1000.0) as u16,
-                    if self.discharge_time_enabled {
-                        self.discharge_time
-                    } else {
-                        device::MIN_CUTOFF_TIME_MIN
-                    },
-                ));
+                self.send_cmd(
+                    OutboundFrame::StartConstantCurrentDischarge(
+                        (self.discharge_current * 1000.0) as u16,
+                        (self.discharge_cutoff_voltage * 1000.0) as u16,
+                        if self.discharge_time_enabled {
+                            self.discharge_time
+                        } else {
+                            device::MIN_CUTOFF_TIME_MIN
+                        },
+                    ),
+                    ui.ctx(),
+                );
                 self.mode_on = true;
                 self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
                 self.voltage_points.clear();
@@ -478,15 +484,18 @@ impl MainApp {
                 )
                 .clicked()
             {
-                self.send_cmd(OutboundFrame::StartConstantCurrentDischarge(
-                    (self.discharge_current * 1000.0) as u16,
-                    (self.discharge_cutoff_voltage * 1000.0) as u16,
-                    if self.discharge_time_enabled {
-                        self.discharge_time
-                    } else {
-                        device::MIN_CUTOFF_TIME_MIN
-                    },
-                ));
+                self.send_cmd(
+                    OutboundFrame::StartConstantCurrentDischarge(
+                        (self.discharge_current * 1000.0) as u16,
+                        (self.discharge_cutoff_voltage * 1000.0) as u16,
+                        if self.discharge_time_enabled {
+                            self.discharge_time
+                        } else {
+                            device::MIN_CUTOFF_TIME_MIN
+                        },
+                    ),
+                    ui.ctx(),
+                );
                 self.mode_on = true;
                 if self.mode_start_time.is_none() {
                     self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
@@ -535,7 +544,7 @@ impl MainApp {
         ui.horizontal(|ui| {
             if self.mode_on {
                 if ui.button("Stop").clicked() {
-                    self.send_cmd(OutboundFrame::Stop);
+                    self.send_cmd(OutboundFrame::Stop, ui.ctx());
                     self.mode_on = false;
                 }
             } else if ui
@@ -543,15 +552,18 @@ impl MainApp {
                 .on_disabled_hover_text("Connect device to battery first")
                 .clicked()
             {
-                self.send_cmd(OutboundFrame::StartConstantPowerDischarge(
-                    self.discharge_watts,
-                    (self.discharge_cutoff_voltage * 1000.0) as u16,
-                    if self.discharge_time_enabled {
-                        self.discharge_time
-                    } else {
-                        device::MIN_CUTOFF_TIME_MIN
-                    },
-                ));
+                self.send_cmd(
+                    OutboundFrame::StartConstantPowerDischarge(
+                        self.discharge_watts,
+                        (self.discharge_cutoff_voltage * 1000.0) as u16,
+                        if self.discharge_time_enabled {
+                            self.discharge_time
+                        } else {
+                            device::MIN_CUTOFF_TIME_MIN
+                        },
+                    ),
+                    ui.ctx(),
+                );
                 self.mode_on = true;
                 self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
                 self.voltage_points.clear();
@@ -564,15 +576,18 @@ impl MainApp {
                 )
                 .clicked()
             {
-                self.send_cmd(OutboundFrame::StartConstantPowerDischarge(
-                    self.discharge_watts,
-                    (self.discharge_cutoff_voltage * 1000.0) as u16,
-                    if self.discharge_time_enabled {
-                        self.discharge_time
-                    } else {
-                        device::MIN_CUTOFF_TIME_MIN
-                    },
-                ));
+                self.send_cmd(
+                    OutboundFrame::StartConstantPowerDischarge(
+                        self.discharge_watts,
+                        (self.discharge_cutoff_voltage * 1000.0) as u16,
+                        if self.discharge_time_enabled {
+                            self.discharge_time
+                        } else {
+                            device::MIN_CUTOFF_TIME_MIN
+                        },
+                    ),
+                    ui.ctx(),
+                );
                 self.mode_on = true;
                 if self.mode_start_time.is_none() {
                     self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
@@ -626,7 +641,7 @@ impl MainApp {
         ui.horizontal(|ui| {
             if self.mode_on {
                 if ui.button("Stop").clicked() {
-                    self.send_cmd(OutboundFrame::Stop);
+                    self.send_cmd(OutboundFrame::Stop, ui.ctx());
                     self.mode_on = false;
                 }
             } else if ui
@@ -634,11 +649,14 @@ impl MainApp {
                 .on_disabled_hover_text("Connect device to battery first")
                 .clicked()
             {
-                self.send_cmd(OutboundFrame::StartConstantVoltageCharge(
-                    (self.charge_current * 1000.0) as u16,
-                    (self.charge_voltage * 1000.0) as u16,
-                    (self.charge_cutoff_current * 1000.0) as u16,
-                ));
+                self.send_cmd(
+                    OutboundFrame::StartConstantVoltageCharge(
+                        (self.charge_current * 1000.0) as u16,
+                        (self.charge_voltage * 1000.0) as u16,
+                        (self.charge_cutoff_current * 1000.0) as u16,
+                    ),
+                    ui.ctx(),
+                );
                 self.mode_on = true;
                 self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
                 self.voltage_points.clear();
@@ -651,11 +669,14 @@ impl MainApp {
                 )
                 .clicked()
             {
-                self.send_cmd(OutboundFrame::StartConstantVoltageCharge(
-                    (self.charge_current * 1000.0) as u16,
-                    (self.charge_voltage * 1000.0) as u16,
-                    (self.charge_cutoff_current * 1000.0) as u16,
-                ));
+                self.send_cmd(
+                    OutboundFrame::StartConstantVoltageCharge(
+                        (self.charge_current * 1000.0) as u16,
+                        (self.charge_voltage * 1000.0) as u16,
+                        (self.charge_cutoff_current * 1000.0) as u16,
+                    ),
+                    ui.ctx(),
+                );
                 self.mode_on = true;
                 if self.mode_start_time.is_none() {
                     self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
@@ -757,6 +778,7 @@ impl MainApp {
     fn about_window_ui(&mut self, ui: &egui::Ui) {
         if self.open_about_window {
             egui::Window::new("About")
+                .open(&mut self.open_about_window)
                 .collapsible(false)
                 .resizable(false)
                 .show(ui.ctx(), |ui| {
@@ -773,14 +795,6 @@ impl MainApp {
                         "https://github.com/Kazhuu/ebc-battery-tester",
                     );
                     ui.add_space(4.0);
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Close").clicked() {
-                                self.open_about_window = false;
-                            }
-                        });
-                    });
                 });
         }
     }
@@ -790,7 +804,7 @@ impl MainApp {
             egui::Window::new("Frame Log")
                 .open(&mut self.open_log_window)
                 .resizable(true)
-                .default_size([500.0, 300.0])
+                .default_size([500.0, 600.0])
                 .show(ui.ctx(), |ui| {
                     ui.horizontal(|ui| {
                         ui.label(format!("{} entries", self.log_entries.len()));
@@ -812,6 +826,17 @@ impl MainApp {
                                     }
                                 };
                                 ui.horizontal(|ui| {
+                                    let t = entry.timestamp as u64;
+                                    let hours = t / 3600;
+                                    let mins = (t % 3600) / 60;
+                                    let secs = t % 60;
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{hours:02}:{mins:02}:{secs:02}"
+                                        ))
+                                        .monospace()
+                                        .weak(),
+                                    );
                                     ui.colored_label(color, prefix);
                                     ui.label(&entry.label);
                                 });
