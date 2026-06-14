@@ -2,11 +2,9 @@ name: Github Pages
 
 on:
   workflow_run:
-    workflows: ["Build and Test"]
+    workflows: ["Release"]
     types:
       - completed
-    branches:
-      - main
 
 permissions:
   contents: write # for committing to gh-pages branch.
