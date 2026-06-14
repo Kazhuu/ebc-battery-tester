@@ -746,7 +746,7 @@ impl MainApp {
                              press Calibrate.",
                     );
                     ui.add_space(4.0);
-                    ui.horizontal(|ui| {
+                    egui::Grid::new("calibrate_voltage_grid").show(ui, |ui| {
                         ui.label("Low (~1 V):");
                         ui.add(
                             egui::DragValue::new(&mut self.calibrate_voltage_low)
@@ -757,8 +757,7 @@ impl MainApp {
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
                         );
                         if ui.button("Calibrate").clicked() {}
-                    });
-                    ui.horizontal(|ui| {
+                        ui.end_row();
                         ui.label("High (~4 V):");
                         ui.add(
                             egui::DragValue::new(&mut self.calibrate_voltage_high)
@@ -769,6 +768,7 @@ impl MainApp {
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
                         );
                         if ui.button("Calibrate").clicked() {}
+                        ui.end_row();
                     });
                     ui.separator();
                     ui.heading("Current");
@@ -779,7 +779,7 @@ impl MainApp {
                              value and press Calibrate.",
                     );
                     ui.add_space(4.0);
-                    ui.horizontal(|ui| {
+                    egui::Grid::new("calibrate_current_grid").show(ui, |ui| {
                         ui.label("Low (~0.5 A):");
                         ui.add(
                             egui::DragValue::new(&mut self.calibrate_current_low)
@@ -790,8 +790,7 @@ impl MainApp {
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
                         );
                         if ui.button("Calibrate").clicked() {}
-                    });
-                    ui.horizontal(|ui| {
+                        ui.end_row();
                         ui.label("High (~2 A):");
                         ui.add(
                             egui::DragValue::new(&mut self.calibrate_current_high)
@@ -802,6 +801,7 @@ impl MainApp {
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
                         );
                         if ui.button("Calibrate").clicked() {}
+                        ui.end_row();
                     });
                     ui.separator();
                     ui.horizontal(|ui| {
