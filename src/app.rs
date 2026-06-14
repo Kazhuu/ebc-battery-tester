@@ -55,6 +55,16 @@ pub struct MainApp {
     charge_current: f32,
     charge_voltage: f32,
     charge_cutoff_current: f32,
+    #[serde(skip)]
+    open_calibration_dialog: bool,
+    #[serde(skip)]
+    calibrate_voltage_low: f32,
+    #[serde(skip)]
+    calibrate_voltage_high: f32,
+    #[serde(skip)]
+    calibrate_current_low: f32,
+    #[serde(skip)]
+    calibrate_current_high: f32,
 }
 
 impl Default for MainApp {
@@ -84,6 +94,11 @@ impl Default for MainApp {
             voltage_points: Vec::new(),
             amperes_points: Vec::new(),
             mode_start_time: None,
+            open_calibration_dialog: false,
+            calibrate_voltage_low: 0.0,
+            calibrate_voltage_high: 0.0,
+            calibrate_current_low: 0.0,
+            calibrate_current_high: 0.0,
         }
     }
 }
@@ -642,6 +657,92 @@ impl MainApp {
                 );
             });
     }
+
+    fn calibrate_ui(&mut self, ui: &mut egui::Ui) {
+        if self.open_calibration_dialog {
+            egui::Window::new("Calibrate")
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    ui.heading("Voltage");
+                    ui.label(
+                        "Set a bench power supply to ~1 V (low) or ~4 V (high), \
+                             connect it to the device input, then measure the exact \
+                             voltage with a multimeter. Enter the measured value and \
+                             press Calibrate.",
+                    );
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label("Low (~1 V):");
+                        ui.add(
+                            egui::DragValue::new(&mut self.calibrate_voltage_low)
+                                .suffix(" V")
+                                .range(0.0..=f32::MAX)
+                                .speed(0.001)
+                                .max_decimals(3)
+                                .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
+                        );
+                        if ui.button("Calibrate").clicked() {}
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("High (~4 V):");
+                        ui.add(
+                            egui::DragValue::new(&mut self.calibrate_voltage_high)
+                                .suffix(" V")
+                                .range(0.0..=f32::MAX)
+                                .speed(0.001)
+                                .max_decimals(3)
+                                .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
+                        );
+                        if ui.button("Calibrate").clicked() {}
+                    });
+                    ui.separator();
+                    ui.heading("Current");
+                    ui.label(
+                        "Connect a battery and start a charge session at a known \
+                             current (~0.5 A low, ~2 A high). Place a multimeter in \
+                             series to measure the actual current, enter the measured \
+                             value and press Calibrate.",
+                    );
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label("Low (~0.5 A):");
+                        ui.add(
+                            egui::DragValue::new(&mut self.calibrate_current_low)
+                                .suffix(" A")
+                                .range(0.0..=f32::MAX)
+                                .speed(0.001)
+                                .max_decimals(3)
+                                .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
+                        );
+                        if ui.button("Calibrate").clicked() {}
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("High (~2 A):");
+                        ui.add(
+                            egui::DragValue::new(&mut self.calibrate_current_high)
+                                .suffix(" A")
+                                .range(0.0..=f32::MAX)
+                                .speed(0.001)
+                                .max_decimals(3)
+                                .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
+                        );
+                        if ui.button("Calibrate").clicked() {}
+                    });
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Cancel").clicked() {
+                                self.open_calibration_dialog = false;
+                            }
+                            if ui.button("OK").clicked() {
+                                self.open_calibration_dialog = false;
+                            }
+                        });
+                    });
+                });
+        }
+    }
 }
 
 impl eframe::App for MainApp {
@@ -667,6 +768,11 @@ impl eframe::App for MainApp {
         });
 
         egui::Panel::left("left_panel").show_inside(ui, |ui| {
+            if ui.button("Calibrate").clicked() {
+                self.open_calibration_dialog = true;
+            }
+
+            self.calibrate_ui(ui);
             self.usb_ui(ui);
             ui.push_id("control_section", |ui| {
                 if self.status == ConnectionStatus::Connected {
