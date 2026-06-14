@@ -879,7 +879,10 @@ impl MainApp {
                                 .max_decimals(3)
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
                         );
-                        if ui.button("Calibrate").clicked() {}
+                        if ui.button("Calibrate").clicked() {
+                            let mv = (self.calibrate_voltage_low * 1000.0) as u16;
+                            self.send_cmd(OutboundFrame::CalibrateVoltageLow(mv), ui.ctx());
+                        }
                         ui.end_row();
                         ui.label("High (~4 V):");
                         ui.add(
@@ -890,7 +893,10 @@ impl MainApp {
                                 .max_decimals(3)
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
                         );
-                        if ui.button("Calibrate").clicked() {}
+                        if ui.button("Calibrate").clicked() {
+                            let mv = (self.calibrate_voltage_high * 1000.0) as u16;
+                            self.send_cmd(OutboundFrame::CalibrateVoltageHigh(mv), ui.ctx());
+                        }
                         ui.end_row();
                     });
                     ui.separator();
@@ -912,7 +918,10 @@ impl MainApp {
                                 .max_decimals(3)
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
                         );
-                        if ui.button("Calibrate").clicked() {}
+                        if ui.button("Calibrate").clicked() {
+                            let ma = (self.calibrate_current_low * 1000.0) as u16;
+                            self.send_cmd(OutboundFrame::CalibrateCurrentLow(ma), ui.ctx());
+                        }
                         ui.end_row();
                         ui.label("High (~2 A):");
                         ui.add(
@@ -923,7 +932,10 @@ impl MainApp {
                                 .max_decimals(3)
                                 .custom_parser(|s| s.replace(',', ".").parse::<f64>().ok()),
                         );
-                        if ui.button("Calibrate").clicked() {}
+                        if ui.button("Calibrate").clicked() {
+                            let ma = (self.calibrate_current_high * 1000.0) as u16;
+                            self.send_cmd(OutboundFrame::CalibrateCurrentHigh(ma), ui.ctx());
+                        }
                         ui.end_row();
                     });
                     ui.separator();
@@ -933,6 +945,7 @@ impl MainApp {
                                 self.open_calibration_window = false;
                             }
                             if ui.button("OK").clicked() {
+                                self.send_cmd(OutboundFrame::CalibrateConfirm, ui.ctx());
                                 self.open_calibration_window = false;
                             }
                         });

@@ -128,6 +128,13 @@ pub enum OutboundFrame {
     // 9990mA. These are also same limits the device has.
     StartConstantVoltageCharge(u16, u16, u16),
     StopConstantCurrentDischarge,
+    // Calibration sub-commands (command byte 0x04). Values are in full mV or mA,
+    // not divided by 10 like other commands.
+    CalibrateVoltageLow(u16),   // low voltage reference in mV
+    CalibrateVoltageHigh(u16),  // high voltage reference in mV
+    CalibrateCurrentLow(u16),   // low current reference in mA
+    CalibrateCurrentHigh(u16),  // high current reference in mA
+    CalibrateConfirm,           // writes all four reference values to device storage
 }
 
 impl std::convert::From<OutboundFrame> for [u8; OUTBOUND_FRAME_SIZE] {
@@ -157,6 +164,11 @@ impl std::convert::From<OutboundFrame> for [u8; OUTBOUND_FRAME_SIZE] {
             OutboundFrame::StopConstantCurrentDischarge => {
                 stop_constant_current_discharge_command()
             }
+            OutboundFrame::CalibrateVoltageLow(mv) => calibration_command(0x00, mv),
+            OutboundFrame::CalibrateVoltageHigh(mv) => calibration_command(0x01, mv),
+            OutboundFrame::CalibrateCurrentLow(ma) => calibration_command(0x02, ma),
+            OutboundFrame::CalibrateCurrentHigh(ma) => calibration_command(0x03, ma),
+            OutboundFrame::CalibrateConfirm => calibration_command(0x04, 0),
         }
     }
 }
@@ -164,6 +176,7 @@ impl std::convert::From<OutboundFrame> for [u8; OUTBOUND_FRAME_SIZE] {
 enum CommmandType {
     StartConstantCurrentDischarge = 0x01,
     Stop = 0x02,
+    Calibration = 0x04,
     Connect = 0x05,
     Disconnect = 0x06,
     StartConstantPowerDischarge = 0x11,
@@ -555,6 +568,19 @@ fn stop_constant_current_discharge_command() -> [u8; OUTBOUND_FRAME_SIZE] {
         0x00,
         0x00,
         0x00,
+        0x00,
+        0x00,
+        0x00,
+    ])
+}
+
+fn calibration_command(sub: u8, value: u16) -> [u8; OUTBOUND_FRAME_SIZE] {
+    let (val_h, val_l) = encode_base240(value);
+    build_frame([
+        CommmandType::Calibration as u8,
+        sub,
+        val_h,
+        val_l,
         0x00,
         0x00,
         0x00,

@@ -1,6 +1,6 @@
 {
     // Uncomment this line to make VSCode compile for WASM by default.
-    // "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
+    // make "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
     "editor.formatOnSave": true,
     "[rust]": {
         "editor.defaultFormatter": "rust-lang.rust-analyzer"
