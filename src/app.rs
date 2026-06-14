@@ -62,6 +62,8 @@ pub struct MainApp {
     #[serde(skip)]
     open_calibration_window: bool,
     #[serde(skip)]
+    open_about_window: bool,
+    #[serde(skip)]
     calibrate_voltage_low: f32,
     #[serde(skip)]
     calibrate_voltage_high: f32,
@@ -100,6 +102,7 @@ impl Default for MainApp {
             amperes_points: Vec::new(),
             mode_start_time: None,
             open_calibration_window: false,
+            open_about_window: false,
             calibrate_voltage_low: 0.0,
             calibrate_voltage_high: 0.0,
             calibrate_current_low: 0.0,
@@ -735,6 +738,37 @@ impl MainApp {
             });
     }
 
+    fn about_window_ui(&mut self, ui: &egui::Ui) {
+        if self.open_about_window {
+            egui::Window::new("About")
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    ui.heading("EBC Battery Tester");
+                    ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                    ui.add_space(4.0);
+                    ui.label(
+                        "Open source, cross-platform desktop and browser application to \
+                         control the ZKetech EBC-A20 battery tester.",
+                    );
+                    ui.add_space(4.0);
+                    ui.hyperlink_to(
+                        "github.com/Kazhuu/ebc-battery-tester",
+                        "https://github.com/Kazhuu/ebc-battery-tester",
+                    );
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Close").clicked() {
+                                self.open_about_window = false;
+                            }
+                        });
+                    });
+                });
+        }
+    }
+
     fn calibrate_window_ui(&mut self, ui: &egui::Ui) {
         if self.open_calibration_window {
             egui::Window::new("Calibrate")
@@ -831,24 +865,20 @@ impl eframe::App for MainApp {
         self.consume_events(ui.ctx());
         egui::Panel::top("top_panel").show_inside(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                let is_web = cfg!(target_arch = "wasm32");
-                if !is_web {
-                    ui.menu_button("File", |ui| {
-                        if ui.button("Quit").clicked() {
-                            ui.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    });
-                    ui.add_space(16.0);
-                }
                 egui::widgets::global_theme_preference_buttons(ui);
+                ui.separator();
+                if ui.button("Calibrate").clicked() {
+                    self.open_calibration_window = true;
+                }
+                ui.separator();
+                if ui.button("About").clicked() {
+                    self.open_about_window = true;
+                }
             });
         });
 
         egui::Panel::left("left_panel").show_inside(ui, |ui| {
-            if ui.button("Calibrate").clicked() {
-                self.open_calibration_window = true;
-            }
-
+            self.about_window_ui(ui);
             self.calibrate_window_ui(ui);
             self.usb_ui(ui);
             ui.push_id("control_section", |ui| {
