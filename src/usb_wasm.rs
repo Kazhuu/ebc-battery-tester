@@ -21,6 +21,15 @@ pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
             return;
         };
         let usb = window.navigator().usb();
+        if usb.is_undefined() {
+            log::error!("WebUSB API not supported in this browser");
+            event_tx
+                .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Error(
+                    "WebUSB API not supported".to_owned(),
+                )))
+                .ok();
+            return;
+        }
         match JsFuture::from(usb.get_devices()).await {
             Ok(value) => {
                 let mut devices = Vec::new();
@@ -39,6 +48,11 @@ pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
             }
             Err(e) => {
                 log::error!("Failed to enumerate USB devices: {e:?}");
+                event_tx
+                    .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Error(
+                        format!("Failed to enumerate USB devices: {e:?}"),
+                    )))
+                    .ok();
             }
         }
     });

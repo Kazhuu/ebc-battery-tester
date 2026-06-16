@@ -16,6 +16,15 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct MainApp {
+    selected_device_mode: device::DeviceMode,
+    discharge_current: f32,
+    discharge_cutoff_voltage: f32,
+    discharge_watts: u16,
+    discharge_time: u16,
+    charge_current: f32,
+    charge_voltage: f32,
+    charge_cutoff_current: f32,
+
     #[serde(skip)]
     available_devices: Vec<device::UsbDeviceInfo>,
     #[serde(skip)]
@@ -48,16 +57,8 @@ pub struct MainApp {
     current_device_mode: Option<device::DeviceMode>,
     #[serde(skip)]
     mode_on: bool,
-    selected_device_mode: device::DeviceMode,
-    discharge_current: f32,
-    discharge_cutoff_voltage: f32,
-    discharge_watts: u16,
-    discharge_time: u16,
     #[serde(skip)]
     discharge_time_enabled: bool,
-    charge_current: f32,
-    charge_voltage: f32,
-    charge_cutoff_current: f32,
     #[serde(skip)]
     open_calibration_window: bool,
     #[serde(skip)]
@@ -239,6 +240,10 @@ impl MainApp {
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
                 DeviceEvent::StatusChanged(status) => {
+                    if matches!(status, ConnectionStatus::Error(_)) {
+                        self.mode_on = false;
+                        self.current_device_mode = None;
+                    }
                     log::info!("Device status changed: {status:?}");
                     self.status = status;
                 }
@@ -335,9 +340,7 @@ impl MainApp {
                         self.send_cmd(OutboundFrame::Disconnect, ui.ctx());
                     }
                 }
-                ConnectionStatus::Error(msg) => {
-                    // TODO: Show error somewhere else.
-                    ui.colored_label(egui::Color32::RED, format!("Error: {msg}"));
+                ConnectionStatus::Error(_) => {
                     if let Some(idx) = self.selected_device_index
                         && ui.button("Retry").clicked()
                     {
@@ -346,6 +349,9 @@ impl MainApp {
                 }
             }
         });
+        if let ConnectionStatus::Error(msg) = &self.status {
+            ui.colored_label(egui::Color32::RED, format!("Error: {msg}"));
+        }
     }
 
     fn live_data_ui(&self, ui: &mut egui::Ui) {

@@ -48,16 +48,18 @@ The app is built with Rust using [egui](https://github.com/emilk/egui) and
 
 These are missing features compared to the original Windows software.
 
+- Send 1 minute time sync frames to the device.
 - Control multiple devices from one software session.
 - Cycles configuration.
-- Firmware update.
 - Plot saving as an image.
-- Data exporting to CSV file.
+- Data exporting to a CSV file.
+- Support for other devices than EBC-A20.
+- Firmware update.
 
 These are things that requires attention from development perspective
 
+- Clean up UI code and split it to smaller pieces.
 - Add tests.
-- Split UI code to smaller pieces.
 
 ## Important Notes
 
