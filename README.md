@@ -1,7 +1,7 @@
 # EBC-A20 Battery Tester
 
-Cross-platform desktop and browser application to control ZTE Tech EBC-A20
-battery tester.
+Cross-platform open source alternative application to control ZTE Tech EBC-A20
+battery tester. Supports both native and browser.
 
 ![App](images/app.png)
 
