@@ -182,7 +182,7 @@ For example, Connect has no parameters so all six parameter bytes are zero:
 ```text
 [fa] [05] [00] [00] [00] [00] [00] [00] [05] [f8]
       ↑   └───────────────────────────┘
-  command              parameters (unused)
+  command          parameters
 ```
 
 A CC discharge command uses all six parameter bytes to carry current, cutoff
