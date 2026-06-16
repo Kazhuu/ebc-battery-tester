@@ -1,7 +1,7 @@
 # EBC-A20 Battery Tester
 
-Cross-platform open source alternative application to control ZTE Tech EBC-A20
-battery tester. Supports both native and browser.
+Open-source, cross-platform alternative for controlling the ZKETECH EBC-A20
+battery tester. Supports both native and browser environments.
 
 ![App](images/app.png)
 
@@ -13,7 +13,7 @@ your OS to allow the browser to access the device.
 Native desktop binaries for Linux and Windows can be downloaded from the [GitHub
 releases page](https://github.com/Kazhuu/ebc-battery-tester/releases). This
 should work out of the box with default drivers. If you did the WebUSB setup
-above, you need undo that in order for native app to discover the serial port.
+above, you need to undo that in order for native app to discover the serial port.
 
 Also check [Important Notes](#important-notes) before running the app.
 
@@ -22,7 +22,6 @@ Reference](#frame-reference).
 
 The app is built with Rust using [egui](https://github.com/emilk/egui) and
 [eframe](https://github.com/emilk/egui/tree/master/crates/eframe).
-
 
 ## Table of Contents
 
@@ -59,7 +58,7 @@ These are missing features compared to the original Windows software.
 - Support for other devices than EBC-A20.
 - Firmware update.
 
-These are things that requires attention from development perspective
+These are things that require attention from a development perspective.
 
 - Clean up UI code and split it to smaller pieces.
 - Add tests.
@@ -108,7 +107,7 @@ connect to the device using WebUSB.
 
 ### Linux
 
-When you plug in the USB cable, Linux `ch341` driver will claim the USB device
+When you plug in the USB cable, the Linux `ch341` driver will claim the USB device
 and you cannot connect to it using WebUSB anymore. You need to unbind it first.
 You can do one time unbind with following command. This will work until you plug
 in the USB cable again.
