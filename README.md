@@ -3,6 +3,8 @@
 Cross-platform desktop and browser application to control ZTE Tech EBC-A20
 battery tester.
 
+![App](images/app.png)
+
 The deployed web app is available at
 [mauri.codes/ebc-battery-tester](https://mauri.codes/ebc-battery-tester). Before
 using the web app, follow the [WebUSB setup](#access-usb-device-on-browser) for
@@ -20,6 +22,7 @@ Reference](#frame-reference).
 
 The app is built with Rust using [egui](https://github.com/emilk/egui) and
 [eframe](https://github.com/emilk/egui/tree/master/crates/eframe).
+
 
 ## Table of Contents
 
