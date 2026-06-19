@@ -52,8 +52,6 @@ pub struct MainApp {
     #[serde(skip)]
     amperes_points: Vec<PlotPoint>,
     #[serde(skip)]
-    mode_start_time: Option<f64>,
-    #[serde(skip)]
     current_device_mode: Option<device::DeviceMode>,
     #[serde(skip)]
     mode_on: bool,
@@ -75,6 +73,12 @@ pub struct MainApp {
     calibrate_current_low: f32,
     #[serde(skip)]
     calibrate_current_high: f32,
+    #[serde(skip)]
+    last_timer_sync_min: u64,
+    #[serde(skip)]
+    mode_start_time: f64,
+    #[serde(skip)]
+    mode_accumulated_secs: f64,
 }
 
 impl Default for MainApp {
@@ -104,7 +108,6 @@ impl Default for MainApp {
             live_milli_ampere_hours: 0,
             voltage_points: Vec::new(),
             amperes_points: Vec::new(),
-            mode_start_time: None,
             open_calibration_window: false,
             open_about_window: false,
             open_log_window: false,
@@ -113,6 +116,9 @@ impl Default for MainApp {
             calibrate_voltage_high: 0.0,
             calibrate_current_low: 0.0,
             calibrate_current_high: 0.0,
+            last_timer_sync_min: 0,
+            mode_start_time: 0.0,
+            mode_accumulated_secs: 0.0,
         }
     }
 }
@@ -138,6 +144,32 @@ impl MainApp {
         app
     }
 
+    fn stop_mode(&mut self, ctx: &egui::Context) {
+        let now = ctx.input(|i| i.time);
+        self.mode_accumulated_secs += now - self.mode_start_time;
+        self.mode_start_time = 0.0;
+        self.mode_on = false;
+    }
+
+    fn elapsed_secs(&self, now: f64) -> f64 {
+        self.mode_accumulated_secs + (now - self.mode_start_time).max(0.0)
+    }
+
+    // Send a TimerSync command every minute when any mode is active. This is
+    // what the original Windows software is also doing, but the purpose of this
+    // is not confirmed.
+    fn send_timer_sync_if_needed(&mut self, ctx: &egui::Context) {
+        if !self.mode_on {
+            return;
+        }
+        let now = ctx.input(|i| i.time);
+        let elapsed_mins = (self.elapsed_secs(now) / 60.0) as u64;
+        if elapsed_mins > self.last_timer_sync_min {
+            self.last_timer_sync_min = elapsed_mins;
+            self.send_cmd(OutboundFrame::TimerSync(elapsed_mins as u16), ctx);
+        }
+    }
+
     fn send_cmd(&mut self, frame: OutboundFrame, ctx: &egui::Context) {
         let raw_bytes: Vec<u8> = <[u8; device::OUTBOUND_FRAME_SIZE]>::from(frame.clone()).to_vec();
         self.log_entries.push(LogEntry {
@@ -161,24 +193,22 @@ impl MainApp {
 
     fn handle_charge_report(&mut self, charge_report: device::ChargeReport, ctx: &egui::Context) {
         self.current_device_mode = Some(device::DeviceMode::ChargeConstantVoltage);
+        let was_on = self.mode_on;
         self.mode_on = charge_report.in_progress;
+        if was_on && !self.mode_on {
+            self.stop_mode(ctx);
+        }
         self.live_voltage_mv = charge_report.voltage_mv;
         self.live_current_ma = charge_report.current_ma;
         self.live_milli_ampere_hours = charge_report.milli_ampere_hours;
         self.model_name = Some(charge_report.device_type);
         if self.mode_on {
-            self.voltage_points.push(PlotPoint::new(
-                self.mode_start_time
-                    .map(|start| ctx.input(|ui| ui.time) - start)
-                    .unwrap_or(0.0),
-                self.live_voltage_mv as f64 / 1000.0,
-            ));
-            self.amperes_points.push(PlotPoint::new(
-                self.mode_start_time
-                    .map(|start| ctx.input(|ui| ui.time) - start)
-                    .unwrap_or(0.0),
-                self.live_current_ma as f64 / 1000.0,
-            ));
+            let now = ctx.input(|i| i.time);
+            let x = self.elapsed_secs(now);
+            self.voltage_points
+                .push(PlotPoint::new(x, self.live_voltage_mv as f64 / 1000.0));
+            self.amperes_points
+                .push(PlotPoint::new(x, self.live_current_ma as f64 / 1000.0));
         }
     }
 
@@ -188,24 +218,22 @@ impl MainApp {
         ctx: &egui::Context,
     ) {
         self.current_device_mode = Some(device::DeviceMode::DischargeConstantCurrent);
+        let was_on = self.mode_on;
         self.mode_on = discharge_report_struct.in_progress;
+        if was_on && !self.mode_on {
+            self.stop_mode(ctx);
+        }
         self.live_voltage_mv = discharge_report_struct.voltage_mv;
         self.live_current_ma = discharge_report_struct.current_ma;
         self.live_milli_ampere_hours = discharge_report_struct.milli_ampere_hours;
         self.model_name = Some(discharge_report_struct.device_type);
         if self.mode_on {
-            self.voltage_points.push(PlotPoint::new(
-                self.mode_start_time
-                    .map(|start| ctx.input(|ui| ui.time) - start)
-                    .unwrap_or(0.0),
-                self.live_voltage_mv as f64 / 1000.0,
-            ));
-            self.amperes_points.push(PlotPoint::new(
-                self.mode_start_time
-                    .map(|start| ctx.input(|ui| ui.time) - start)
-                    .unwrap_or(0.0),
-                self.live_current_ma as f64 / 1000.0,
-            ));
+            let now = ctx.input(|i| i.time);
+            let x = self.elapsed_secs(now);
+            self.voltage_points
+                .push(PlotPoint::new(x, self.live_voltage_mv as f64 / 1000.0));
+            self.amperes_points
+                .push(PlotPoint::new(x, self.live_current_ma as f64 / 1000.0));
         }
     }
 
@@ -215,24 +243,22 @@ impl MainApp {
         ctx: &egui::Context,
     ) {
         self.current_device_mode = Some(device::DeviceMode::DischargeConstantPower);
+        let was_on = self.mode_on;
         self.mode_on = discharge_report_struct.in_progress;
+        if was_on && !self.mode_on {
+            self.stop_mode(ctx);
+        }
         self.live_voltage_mv = discharge_report_struct.voltage_mv;
         self.live_current_ma = discharge_report_struct.current_ma;
         self.live_milli_ampere_hours = discharge_report_struct.milli_ampere_hours;
         self.model_name = Some(discharge_report_struct.device_type);
         if self.mode_on {
-            self.voltage_points.push(PlotPoint::new(
-                self.mode_start_time
-                    .map(|start| ctx.input(|ui| ui.time) - start)
-                    .unwrap_or(0.0),
-                self.live_voltage_mv as f64 / 1000.0,
-            ));
-            self.amperes_points.push(PlotPoint::new(
-                self.mode_start_time
-                    .map(|start| ctx.input(|ui| ui.time) - start)
-                    .unwrap_or(0.0),
-                self.live_current_ma as f64 / 1000.0,
-            ));
+            let now = ctx.input(|i| i.time);
+            let x = self.elapsed_secs(now);
+            self.voltage_points
+                .push(PlotPoint::new(x, self.live_voltage_mv as f64 / 1000.0));
+            self.amperes_points
+                .push(PlotPoint::new(x, self.live_current_ma as f64 / 1000.0));
         }
     }
 
@@ -241,7 +267,9 @@ impl MainApp {
             match event {
                 DeviceEvent::StatusChanged(status) => {
                     if matches!(status, ConnectionStatus::Error(_)) {
-                        self.mode_on = false;
+                        if self.mode_on {
+                            self.stop_mode(ctx);
+                        }
                         self.current_device_mode = None;
                     }
                     log::info!("Device status changed: {status:?}");
@@ -357,21 +385,38 @@ impl MainApp {
     fn live_data_ui(&self, ui: &mut egui::Ui) {
         ui.separator();
         ui.heading("Live Data");
-        ui.horizontal(|ui| {
-            ui.label("Measurements:");
-            if !has_live_voltage(self) {
-                ui.colored_label(
-                    ui.visuals().error_fg_color,
-                    "Connect the device to a battery",
-                );
-            }
-        });
-        ui.horizontal(|ui| {
+        if !has_live_voltage(self) {
+            ui.colored_label(
+                ui.visuals().error_fg_color,
+                "Connect the device to a battery",
+            );
+        }
+        egui::Grid::new("measurements_grid").show(ui, |ui| {
+            ui.label("Voltage:");
             ui.label(format!("{:.3} V", self.live_voltage_mv as f32 / 1000.0));
+            ui.end_row();
+
+            ui.label("Current:");
             ui.label(format!("{:.2} A", self.live_current_ma as f32 / 1000.0));
+            ui.end_row();
+
+            ui.label("Power:");
+            ui.label(format!(
+                "{:.2} W",
+                (self.live_voltage_mv as f32 / 1000.0) * (self.live_current_ma as f32 / 1000.0)
+            ));
+            ui.end_row();
+
+            ui.label("Capacity:");
             ui.label(format!("{:.2} mAh", self.live_milli_ampere_hours));
-        });
-        ui.horizontal(|ui| {
+            ui.end_row();
+
+            ui.label("Time:");
+            ui.label(format_duration(
+                self.elapsed_secs(ui.ctx().input(|i| i.time)),
+            ));
+            ui.end_row();
+
             ui.label("Mode:");
             if let Some(current_device_mode) = self.current_device_mode {
                 ui.colored_label(
@@ -388,18 +433,23 @@ impl MainApp {
             } else {
                 ui.label("--");
             }
-        });
-        ui.horizontal(|ui| {
+            ui.end_row();
+
+            ui.label("Model:");
             if let Some(model_name) = &self.model_name {
-                ui.label(format!("Model: {model_name}"));
+                ui.label(model_name);
             } else {
-                ui.label("Model: --");
+                ui.label("--");
             }
+            ui.end_row();
+
+            ui.label("Firmware:");
             if let Some(firmware_version) = &self.firmware_version {
-                ui.label(format!("Firmware: v{firmware_version}"));
+                ui.label(format!("v{firmware_version}"));
             } else {
-                ui.label("Firmware: --");
+                ui.label("--");
             }
+            ui.end_row();
         });
     }
 
@@ -449,7 +499,7 @@ impl MainApp {
             if self.mode_on {
                 if ui.button("Stop").clicked() {
                     self.send_cmd(OutboundFrame::Stop, ui.ctx());
-                    self.mode_on = false;
+                    self.stop_mode(ui.ctx());
                 }
             } else if ui
                 .add_enabled(has_live_voltage(self), egui::Button::new("Start"))
@@ -469,7 +519,9 @@ impl MainApp {
                     ui.ctx(),
                 );
                 self.mode_on = true;
-                self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
+                self.mode_start_time = ui.ctx().input(|ui| ui.time);
+                self.mode_accumulated_secs = 0.0;
+                self.last_timer_sync_min = 0;
                 self.voltage_points.clear();
                 self.amperes_points.clear();
             }
@@ -493,9 +545,7 @@ impl MainApp {
                     ui.ctx(),
                 );
                 self.mode_on = true;
-                if self.mode_start_time.is_none() {
-                    self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
-                }
+                self.mode_start_time = ui.ctx().input(|ui| ui.time);
             }
         });
     }
@@ -541,7 +591,7 @@ impl MainApp {
             if self.mode_on {
                 if ui.button("Stop").clicked() {
                     self.send_cmd(OutboundFrame::Stop, ui.ctx());
-                    self.mode_on = false;
+                    self.stop_mode(ui.ctx());
                 }
             } else if ui
                 .add_enabled(has_live_voltage(self), egui::Button::new("Start"))
@@ -561,7 +611,9 @@ impl MainApp {
                     ui.ctx(),
                 );
                 self.mode_on = true;
-                self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
+                self.mode_start_time = ui.ctx().input(|ui| ui.time);
+                self.mode_accumulated_secs = 0.0;
+                self.last_timer_sync_min = 0;
                 self.voltage_points.clear();
                 self.amperes_points.clear();
             }
@@ -585,9 +637,7 @@ impl MainApp {
                     ui.ctx(),
                 );
                 self.mode_on = true;
-                if self.mode_start_time.is_none() {
-                    self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
-                }
+                self.mode_start_time = ui.ctx().input(|ui| ui.time);
             }
         });
     }
@@ -638,7 +688,7 @@ impl MainApp {
             if self.mode_on {
                 if ui.button("Stop").clicked() {
                     self.send_cmd(OutboundFrame::Stop, ui.ctx());
-                    self.mode_on = false;
+                    self.stop_mode(ui.ctx());
                 }
             } else if ui
                 .add_enabled(has_live_voltage(self), egui::Button::new("Start"))
@@ -654,7 +704,9 @@ impl MainApp {
                     ui.ctx(),
                 );
                 self.mode_on = true;
-                self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
+                self.mode_start_time = ui.ctx().input(|ui| ui.time);
+                self.mode_accumulated_secs = 0.0;
+                self.last_timer_sync_min = 0;
                 self.voltage_points.clear();
                 self.amperes_points.clear();
             }
@@ -674,9 +726,7 @@ impl MainApp {
                     ui.ctx(),
                 );
                 self.mode_on = true;
-                if self.mode_start_time.is_none() {
-                    self.mode_start_time = Some(ui.ctx().input(|ui| ui.time));
-                }
+                self.mode_start_time = ui.ctx().input(|ui| ui.time);
             }
         });
     }
@@ -993,6 +1043,14 @@ impl eframe::App for MainApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.consume_events(ui.ctx());
+        self.send_timer_sync_if_needed(ui.ctx());
+        // Request a repaint every second to update the timer when any mode is
+        // active. This is needed so that the clock is updated every second. Not
+        // when something happens.
+        if self.mode_on {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_secs(1));
+        }
         egui::Panel::top("top_panel").show_inside(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 egui::widgets::global_theme_preference_buttons(ui);

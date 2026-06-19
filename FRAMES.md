@@ -321,7 +321,7 @@ timer, drive the elapsed-time display, or serve as a keep-alive. The device
 does not send a dedicated reply beyond its normal periodic status reports.
 
 ```text
-[fa] [0a] [00] [minutes_h] [minutes_l] [00] [00] [00] [checksum] [f8]
+[fa] [0a] [minutes_h] [minutes_l] [00] [00] [00] [00] [checksum] [f8]
 ```
 
 ```text
@@ -544,7 +544,7 @@ All outbound frames are 10 bytes: `[fa] [payload × 7] [chk] [f8]`.
 | `21` | Start CV charge | cur_h | cur_l | v_h | v_l | ci_h | ci_l |
 | `28` | Resume CV charge | cur_h | cur_l | v_h | v_l | ci_h | ci_l |
 | `09` | Internal resistance | cur_h | cur_l | `00` | `00` | `00` | `00` |
-| `0a` | Timer sync | `00` | min_h | min_l | `00` | `00` | `00` |
+| `0a` | Timer sync | min_h | min_l | `00` | `00` | `00` | `00` |
 | `04` | Calibration | sub | val_h | val_l | `00` | `00` | `00` |
 
 **Field key:**

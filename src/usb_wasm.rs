@@ -208,7 +208,8 @@ async fn device_task(
                 }
             }
             Some(
-                frame @ (OutboundFrame::CalibrateVoltageLow(_)
+                frame @ (OutboundFrame::TimerSync(_)
+                | OutboundFrame::CalibrateVoltageLow(_)
                 | OutboundFrame::CalibrateVoltageHigh(_)
                 | OutboundFrame::CalibrateCurrentLow(_)
                 | OutboundFrame::CalibrateCurrentHigh(_)

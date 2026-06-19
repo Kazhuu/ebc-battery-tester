@@ -50,7 +50,6 @@ The app is built with Rust using [egui](https://github.com/emilk/egui) and
 
 These are missing features compared to the original Windows software.
 
-- Send 1 minute time sync frames to the device.
 - Control multiple devices from one software session.
 - Cycles configuration.
 - Plot saving as an image.

@@ -128,6 +128,8 @@ pub enum OutboundFrame {
     // 9990mA. These are also same limits the device has.
     StartConstantVoltageCharge(u16, u16, u16),
     StopConstantCurrentDischarge,
+    // Elapsed minutes since the current mode started, sent once per minute.
+    TimerSync(u16),
     // Calibration sub-commands (command byte 0x04). Values are in full mV or mA,
     // not divided by 10 like other commands.
     CalibrateVoltageLow(u16),  // low voltage reference in mV
@@ -164,6 +166,7 @@ impl std::convert::From<OutboundFrame> for [u8; OUTBOUND_FRAME_SIZE] {
             OutboundFrame::StopConstantCurrentDischarge => {
                 stop_constant_current_discharge_command()
             }
+            OutboundFrame::TimerSync(minutes) => timer_sync_command(minutes),
             OutboundFrame::CalibrateVoltageLow(mv) => calibration_command(0x00, mv),
             OutboundFrame::CalibrateVoltageHigh(mv) => calibration_command(0x01, mv),
             OutboundFrame::CalibrateCurrentLow(ma) => calibration_command(0x02, ma),
@@ -188,9 +191,7 @@ enum CommmandType {
     // TODO: Not tested.
     #[expect(unused)]
     AdjustDischargeConstantCurrent = 0x07,
-    // TODO: Not tested.
-    #[expect(unused)]
-    ChargeTimeQuery = 0x0A,
+    TimerSync = 0x0A,
 }
 
 enum StatusReportType {
@@ -567,6 +568,19 @@ fn stop_constant_current_discharge_command() -> [u8; OUTBOUND_FRAME_SIZE] {
         CommmandType::StopConstantCurrentDischarge as u8,
         0x00,
         0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+    ])
+}
+
+fn timer_sync_command(minutes: u16) -> [u8; OUTBOUND_FRAME_SIZE] {
+    let (min_h, min_l) = encode_base240(minutes);
+    build_frame([
+        CommmandType::TimerSync as u8,
+        min_h,
+        min_l,
         0x00,
         0x00,
         0x00,
