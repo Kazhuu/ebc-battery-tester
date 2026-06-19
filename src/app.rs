@@ -407,14 +407,25 @@ impl MainApp {
             ));
             ui.end_row();
 
+            ui.label("Energy:");
+            ui.label(format!(
+                "{:.0} mWh",
+                (self.live_voltage_mv as f32) * (self.live_milli_ampere_hours as f32) / 1000.0
+            ));
+            ui.end_row();
+
             ui.label("Capacity:");
-            ui.label(format!("{:.2} mAh", self.live_milli_ampere_hours));
+            ui.label(format!("{} mAh", self.live_milli_ampere_hours));
             ui.end_row();
 
             ui.label("Time:");
-            ui.label(format_duration(
-                self.elapsed_secs(ui.ctx().input(|i| i.time)),
-            ));
+            if self.mode_on {
+                ui.label(format_duration(
+                    self.elapsed_secs(ui.ctx().input(|i| i.time)),
+                ));
+            } else {
+                ui.label(format_duration(self.mode_accumulated_secs));
+            }
             ui.end_row();
 
             ui.label("Mode:");
@@ -1044,13 +1055,10 @@ impl eframe::App for MainApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.consume_events(ui.ctx());
         self.send_timer_sync_if_needed(ui.ctx());
-        // Request a repaint every second to update the timer when any mode is
-        // active. This is needed so that the clock is updated every second. Not
-        // when something happens.
-        if self.mode_on {
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_secs(1));
-        }
+        // Request a repaint every second to update the timer. This is needed so
+        // that the clock is updated every second. Not when something happens.
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs(1));
         egui::Panel::top("top_panel").show_inside(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 egui::widgets::global_theme_preference_buttons(ui);
