@@ -215,7 +215,6 @@ enum CommmandType {
     ContinueConstantPowerDischarge = 0x18,
     StartConstantVoltageCharge = 0x21,
     ContinueConstantVoltageCharge = 0x28,
-    InternalResistanceTest = 0x09,
     TimerSync = 0x0A,
     Calibration = 0x04,
 }

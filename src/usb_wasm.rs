@@ -170,6 +170,42 @@ async fn device_task(
                     log::error!("Failed to start constant current discharge mode: {e:?}");
                 }
             }
+            Some(OutboundFrame::AdjustConstantCurrentDischarge(
+                current,
+                cutoff_mv,
+                cutoff_time,
+            )) => {
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
+                    && let Err(e) = adjust_constant_current_discharge(
+                        device,
+                        ep,
+                        current,
+                        cutoff_mv,
+                        cutoff_time,
+                    )
+                    .await
+                {
+                    log::error!("Failed to adjust constant current discharge mode: {e:?}");
+                }
+            }
+            Some(OutboundFrame::ContinueConstantCurrentDischarge(
+                current,
+                cutoff_mv,
+                cutoff_time,
+            )) => {
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
+                    && let Err(e) = continue_constant_current_discharge(
+                        device,
+                        ep,
+                        current,
+                        cutoff_mv,
+                        cutoff_time,
+                    )
+                    .await
+                {
+                    log::error!("Failed to continue constant current discharge mode: {e:?}");
+                }
+            }
             Some(OutboundFrame::StartConstantPowerDischarge(power, cutoff_mv, cutoff_time)) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
                     && let Err(e) =
@@ -177,6 +213,15 @@ async fn device_task(
                             .await
                 {
                     log::error!("Failed to start constant power discharge mode: {e:?}");
+                }
+            }
+            Some(OutboundFrame::ContinueConstantPowerDischarge(power, cutoff_mv, cutoff_time)) => {
+                if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
+                    && let Err(e) =
+                        continue_constant_power_discharge(device, ep, power, cutoff_mv, cutoff_time)
+                            .await
+                {
+                    log::error!("Failed to continue constant power discharge mode: {e:?}");
                 }
             }
             Some(OutboundFrame::StartConstantVoltageCharge(current, cutoff_mv, cutoff_current)) => {
@@ -193,18 +238,22 @@ async fn device_task(
                     log::error!("Failed to start constant voltage charge mode: {e:?}");
                 }
             }
-            Some(OutboundFrame::Continue) => {
+            Some(OutboundFrame::ContinueConstantVoltageCharge(
+                current,
+                cutoff_mv,
+                cutoff_current,
+            )) => {
                 if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
-                    && let Err(e) = continue_command(device, ep).await
+                    && let Err(e) = continue_constant_voltage_charge(
+                        device,
+                        ep,
+                        current,
+                        cutoff_mv,
+                        cutoff_current,
+                    )
+                    .await
                 {
-                    log::error!("Failed to send continue command: {e:?}");
-                }
-            }
-            Some(OutboundFrame::StopConstantCurrentDischarge) => {
-                if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
-                    && let Err(e) = stop_constant_current_discharge(device, ep).await
-                {
-                    log::error!("Failed to send stop constant current discharge command: {e:?}");
+                    log::error!("Failed to continue constant voltage charge mode: {e:?}");
                 }
             }
             Some(
@@ -418,6 +467,44 @@ async fn start_constant_current_discharge(
     Ok(())
 }
 
+async fn adjust_constant_current_discharge(
+    device: &web_sys::UsbDevice,
+    out_endpoint_num: u8,
+    current_ma: u16,
+    cutoff_mv: u16,
+    cutoff_time_min: u16,
+) -> Result<(), JsValue> {
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] =
+        OutboundFrame::AdjustConstantCurrentDischarge(current_ma, cutoff_mv, cutoff_time_min)
+            .into();
+    let promise = device
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
+        .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
+    JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("Adjust constant current discharge command failed: {e:?}"))?;
+    Ok(())
+}
+
+async fn continue_constant_current_discharge(
+    device: &web_sys::UsbDevice,
+    out_endpoint_num: u8,
+    current_ma: u16,
+    cutoff_mv: u16,
+    cutoff_time_min: u16,
+) -> Result<(), JsValue> {
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] =
+        OutboundFrame::ContinueConstantCurrentDischarge(current_ma, cutoff_mv, cutoff_time_min)
+            .into();
+    let promise = device
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
+        .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
+    JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("Continue constant current discharge command failed: {e:?}"))?;
+    Ok(())
+}
+
 async fn start_constant_power_discharge(
     device: &web_sys::UsbDevice,
     out_endpoint_num: u8,
@@ -433,6 +520,24 @@ async fn start_constant_power_discharge(
     JsFuture::from(promise)
         .await
         .map_err(|e| format!("Start constant power discharge command failed: {e:?}"))?;
+    Ok(())
+}
+
+async fn continue_constant_power_discharge(
+    device: &web_sys::UsbDevice,
+    out_endpoint_num: u8,
+    power_w: u16,
+    cutoff_mv: u16,
+    cutoff_time_min: u16,
+) -> Result<(), JsValue> {
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] =
+        OutboundFrame::ContinueConstantPowerDischarge(power_w, cutoff_mv, cutoff_time_min).into();
+    let promise = device
+        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
+        .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
+    JsFuture::from(promise)
+        .await
+        .map_err(|e| format!("Continue constant power discharge command failed: {e:?}"))?;
     Ok(())
 }
 
@@ -454,31 +559,22 @@ async fn start_constant_voltage_charge(
     Ok(())
 }
 
-async fn continue_command(
+async fn continue_constant_voltage_charge(
     device: &web_sys::UsbDevice,
     out_endpoint_num: u8,
+    current_ma: u16,
+    cutoff_mv: u16,
+    cutoff_current_ma: u16,
 ) -> Result<(), JsValue> {
-    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] = OutboundFrame::Continue.into();
+    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] =
+        OutboundFrame::ContinueConstantVoltageCharge(current_ma, cutoff_mv, cutoff_current_ma)
+            .into();
     let promise = device
         .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
         .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
     JsFuture::from(promise)
         .await
-        .map_err(|e| format!("Continue command failed: {e:?}"))?;
-    Ok(())
-}
-
-async fn stop_constant_current_discharge(
-    device: &web_sys::UsbDevice,
-    out_endpoint_num: u8,
-) -> Result<(), JsValue> {
-    let mut bytes: [u8; OUTBOUND_FRAME_SIZE] = OutboundFrame::StopConstantCurrentDischarge.into();
-    let promise = device
-        .transfer_out_with_u8_slice(out_endpoint_num, &mut bytes)
-        .map_err(|e| format!("Failed to start transfer: {e:?}"))?;
-    JsFuture::from(promise)
-        .await
-        .map_err(|e| format!("Stop constant current discharge command failed: {e:?}"))?;
+        .map_err(|e| format!("Continue constant voltage charge command failed: {e:?}"))?;
     Ok(())
 }
 
