@@ -544,7 +544,7 @@ impl MainApp {
                 .clicked()
             {
                 self.send_cmd(
-                    OutboundFrame::StartConstantCurrentDischarge(
+                    OutboundFrame::ContinueConstantCurrentDischarge(
                         (self.discharge_current * 1000.0) as u16,
                         (self.discharge_cutoff_voltage * 1000.0) as u16,
                         if self.discharge_time_enabled {
@@ -557,6 +557,29 @@ impl MainApp {
                 );
                 self.mode_on = true;
                 self.mode_start_time = ui.ctx().input(|ui| ui.time);
+            }
+            if ui
+                .add_enabled(
+                    has_live_voltage(self)
+                        && self.mode_on
+                        && self.current_device_mode
+                            == Some(device::DeviceMode::DischargeConstantCurrent),
+                    egui::Button::new("Adjust"),
+                )
+                .clicked()
+            {
+                self.send_cmd(
+                    OutboundFrame::AdjustConstantCurrentDischarge(
+                        (self.discharge_current * 1000.0) as u16,
+                        (self.discharge_cutoff_voltage * 1000.0) as u16,
+                        if self.discharge_time_enabled {
+                            self.discharge_time
+                        } else {
+                            device::MIN_CUTOFF_TIME_MIN
+                        },
+                    ),
+                    ui.ctx(),
+                );
             }
         });
     }
@@ -636,7 +659,7 @@ impl MainApp {
                 .clicked()
             {
                 self.send_cmd(
-                    OutboundFrame::StartConstantPowerDischarge(
+                    OutboundFrame::ContinueConstantPowerDischarge(
                         self.discharge_watts,
                         (self.discharge_cutoff_voltage * 1000.0) as u16,
                         if self.discharge_time_enabled {
@@ -729,7 +752,7 @@ impl MainApp {
                 .clicked()
             {
                 self.send_cmd(
-                    OutboundFrame::StartConstantVoltageCharge(
+                    OutboundFrame::ContinueConstantVoltageCharge(
                         (self.charge_current * 1000.0) as u16,
                         (self.charge_voltage * 1000.0) as u16,
                         (self.charge_cutoff_current * 1000.0) as u16,

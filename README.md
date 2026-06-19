@@ -54,6 +54,7 @@ These are missing features compared to the original Windows software.
 - Cycles configuration.
 - Plot saving as an image.
 - Data exporting to a CSV file.
+- Internal resistance test.
 - Support for other devices than EBC-A20.
 - Firmware update.
 

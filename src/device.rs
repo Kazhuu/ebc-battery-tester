@@ -103,8 +103,6 @@ pub enum OutboundFrame {
     Disconnect,
     // Stop ongoing discharge or charge mode.
     Stop,
-    // TODO: Does not work yet. Seems to trigger discharge constant power???
-    Continue,
     // Start constant current discharge mode with given discharge current in mA,
     // cutoff voltage in mV, and cutoff time in minutes. If cutoff time is 0,
     // means indefinite. The cutoff
@@ -113,6 +111,10 @@ pub enum OutboundFrame {
     // current is 20A, maximum voltage is 30V, and maximum cutoff time is 999
     // minutes. These are also same limits the device has.
     StartConstantCurrentDischarge(u16, u16, u16),
+    // Same parameters as StartConstantCurrentDischarge.
+    AdjustConstantCurrentDischarge(u16, u16, u16),
+    // Same parameters as StartConstantCurrentDischarge.
+    ContinueConstantCurrentDischarge(u16, u16, u16),
     // Start constant power discharge mode with given power in W, cutoff voltage
     // in mV, and cutoff time in minutes. If cutoff time is 0, means indefinite.
     // The cutoff voltage value is quantized to 10mV. This is
@@ -120,6 +122,8 @@ pub enum OutboundFrame {
     // Maximum power is 200W, maximum voltage is 30V, and maximum cutoff time is
     // 999 minutes. These are also same limits the device has.
     StartConstantPowerDischarge(u16, u16, u16),
+    // Same parameters as StartConstantPowerDischarge.
+    ContinueConstantPowerDischarge(u16, u16, u16),
     // Start constant voltage charge mode with given charge current in mA,
     // charge voltage in mV and cutoff current in mA. The charge voltage and
     // current values are quantized to 10mV and 10mA. This is because the device
@@ -127,7 +131,8 @@ pub enum OutboundFrame {
     // current is 5A, maximum voltage is 30V, and maximum cutoff current is
     // 9990mA. These are also same limits the device has.
     StartConstantVoltageCharge(u16, u16, u16),
-    StopConstantCurrentDischarge,
+    // Same parameters as StartConstantVoltageCharge.
+    ContinueConstantVoltageCharge(u16, u16, u16),
     // Elapsed minutes since the current mode started, sent once per minute.
     TimerSync(u16),
     // Calibration sub-commands (command byte 0x04). Values are in full mV or mA,
@@ -136,7 +141,10 @@ pub enum OutboundFrame {
     CalibrateVoltageHigh(u16), // high voltage reference in mV
     CalibrateCurrentLow(u16),  // low current reference in mA
     CalibrateCurrentHigh(u16), // high current reference in mA
-    CalibrateConfirm,          // writes all four reference values to device storage
+    // Writes all four reference values to device storage. If not sent after
+    // calibration commands, the new calibration values will not be saved and
+    // lost after device is turned off.
+    CalibrateConfirm,
 }
 
 impl std::convert::From<OutboundFrame> for [u8; OUTBOUND_FRAME_SIZE] {
@@ -145,14 +153,28 @@ impl std::convert::From<OutboundFrame> for [u8; OUTBOUND_FRAME_SIZE] {
             OutboundFrame::Connect(_) => connect_command(),
             OutboundFrame::Disconnect => disconnect_command(),
             OutboundFrame::Stop => stop_command(),
-            OutboundFrame::Continue => continue_command(),
             OutboundFrame::StartConstantCurrentDischarge(
                 current_ma,
                 cutoff_mv,
                 cutoff_time_min,
             ) => start_constant_current_discharge_command(current_ma, cutoff_mv, cutoff_time_min),
+            OutboundFrame::AdjustConstantCurrentDischarge(
+                current_ma,
+                cutoff_mv,
+                cutoff_time_min,
+            ) => adjust_constant_current_discharge_command(current_ma, cutoff_mv, cutoff_time_min),
+            OutboundFrame::ContinueConstantCurrentDischarge(
+                current_ma,
+                cutoff_mv,
+                cutoff_time_min,
+            ) => {
+                continue_constant_current_discharge_command(current_ma, cutoff_mv, cutoff_time_min)
+            }
             OutboundFrame::StartConstantPowerDischarge(power_w, cutoff_mv, cutoff_time_min) => {
                 start_constant_power_discharge_command(power_w, cutoff_mv, cutoff_time_min)
+            }
+            OutboundFrame::ContinueConstantPowerDischarge(power_w, cutoff_mv, cutoff_time_min) => {
+                continue_constant_power_discharge_command(power_w, cutoff_mv, cutoff_time_min)
             }
             OutboundFrame::StartConstantVoltageCharge(
                 current_ma,
@@ -163,9 +185,15 @@ impl std::convert::From<OutboundFrame> for [u8; OUTBOUND_FRAME_SIZE] {
                 charge_voltage_mv,
                 cutoff_current_ma,
             ),
-            OutboundFrame::StopConstantCurrentDischarge => {
-                stop_constant_current_discharge_command()
-            }
+            OutboundFrame::ContinueConstantVoltageCharge(
+                current_ma,
+                charge_voltage_mv,
+                cutoff_current_ma,
+            ) => continue_constant_voltage_charge_command(
+                current_ma,
+                charge_voltage_mv,
+                cutoff_current_ma,
+            ),
             OutboundFrame::TimerSync(minutes) => timer_sync_command(minutes),
             OutboundFrame::CalibrateVoltageLow(mv) => calibration_command(0x00, mv),
             OutboundFrame::CalibrateVoltageHigh(mv) => calibration_command(0x01, mv),
@@ -177,21 +205,19 @@ impl std::convert::From<OutboundFrame> for [u8; OUTBOUND_FRAME_SIZE] {
 }
 
 enum CommmandType {
-    StartConstantCurrentDischarge = 0x01,
-    Stop = 0x02,
-    Calibration = 0x04,
     Connect = 0x05,
     Disconnect = 0x06,
+    Stop = 0x02,
+    StartConstantCurrentDischarge = 0x01,
+    AdjustConstantCurrentDischarge = 0x07,
+    ContinueConstantCurrentDischarge = 0x08,
     StartConstantPowerDischarge = 0x11,
+    ContinueConstantPowerDischarge = 0x18,
     StartConstantVoltageCharge = 0x21,
-    // TODO: This seems to trigger discharge constant power???
-    Continue = 0x18,
-    // TODO: Does this work?
-    StopConstantCurrentDischarge = 0x08,
-    // TODO: Not tested.
-    #[expect(unused)]
-    AdjustDischargeConstantCurrent = 0x07,
+    ContinueConstantVoltageCharge = 0x28,
+    InternalResistanceTest = 0x09,
     TimerSync = 0x0A,
+    Calibration = 0x04,
 }
 
 enum StatusReportType {
@@ -551,56 +577,6 @@ fn stop_command() -> [u8; OUTBOUND_FRAME_SIZE] {
     build_frame([CommmandType::Stop as u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
 }
 
-fn continue_command() -> [u8; OUTBOUND_FRAME_SIZE] {
-    build_frame([
-        CommmandType::Continue as u8,
-        0x00,
-        0x03,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-    ])
-}
-
-fn stop_constant_current_discharge_command() -> [u8; OUTBOUND_FRAME_SIZE] {
-    build_frame([
-        CommmandType::StopConstantCurrentDischarge as u8,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-    ])
-}
-
-fn timer_sync_command(minutes: u16) -> [u8; OUTBOUND_FRAME_SIZE] {
-    let (min_h, min_l) = encode_base240(minutes);
-    build_frame([
-        CommmandType::TimerSync as u8,
-        min_h,
-        min_l,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-    ])
-}
-
-fn calibration_command(sub: u8, value: u16) -> [u8; OUTBOUND_FRAME_SIZE] {
-    let (val_h, val_l) = encode_base240(value);
-    build_frame([
-        CommmandType::Calibration as u8,
-        sub,
-        val_h,
-        val_l,
-        0x00,
-        0x00,
-        0x00,
-    ])
-}
-
 fn start_constant_current_discharge_command(
     current_ma: u16,
     cutoff_mv: u16,
@@ -630,6 +606,94 @@ fn start_constant_current_discharge_command(
         cutoff_l,
         time_h,
         time_l,
+    ])
+}
+
+fn adjust_constant_current_discharge_command(
+    current_ma: u16,
+    cutoff_mv: u16,
+    cutoff_time_min: u16,
+) -> [u8; OUTBOUND_FRAME_SIZE] {
+    assert!(
+        (MIN_DISCHARGE_CURRENT_MA..=MAX_DISCHARGE_CURRENT_MA).contains(&current_ma),
+        "Current must be between {MIN_DISCHARGE_CURRENT_MA}mA and {MAX_DISCHARGE_CURRENT_MA}mA"
+    );
+    assert!(
+        (MIN_VOLTAGE_MV..=MAX_VOLTAGE_MV).contains(&cutoff_mv),
+        "Cutoff voltage must be between {MIN_VOLTAGE_MV}mV and {MAX_VOLTAGE_MV}mV"
+    );
+    assert!(
+        (cutoff_time_min <= MAX_CUTOFF_TIME_MIN),
+        "Cutoff time must be between 0 and {MAX_CUTOFF_TIME_MIN} minutes"
+    );
+    let (current_h, current_l) = encode_base240(current_ma / 10);
+    let (cutoff_h, cutoff_l) = encode_base240(cutoff_mv / 10);
+    let (time_h, time_l) = encode_base240(cutoff_time_min);
+    build_frame([
+        CommmandType::AdjustConstantCurrentDischarge as u8,
+        current_h,
+        current_l,
+        cutoff_h,
+        cutoff_l,
+        time_h,
+        time_l,
+    ])
+}
+
+fn continue_constant_current_discharge_command(
+    current_ma: u16,
+    cutoff_mv: u16,
+    cutoff_time_min: u16,
+) -> [u8; OUTBOUND_FRAME_SIZE] {
+    assert!(
+        (MIN_DISCHARGE_CURRENT_MA..=MAX_DISCHARGE_CURRENT_MA).contains(&current_ma),
+        "Current must be between {MIN_DISCHARGE_CURRENT_MA}mA and {MAX_DISCHARGE_CURRENT_MA}mA"
+    );
+    assert!(
+        (MIN_VOLTAGE_MV..=MAX_VOLTAGE_MV).contains(&cutoff_mv),
+        "Cutoff voltage must be between {MIN_VOLTAGE_MV}mV and {MAX_VOLTAGE_MV}mV"
+    );
+    assert!(
+        (cutoff_time_min <= MAX_CUTOFF_TIME_MIN),
+        "Cutoff time must be between 0 and {MAX_CUTOFF_TIME_MIN} minutes"
+    );
+    let (current_h, current_l) = encode_base240(current_ma / 10);
+    let (cutoff_h, cutoff_l) = encode_base240(cutoff_mv / 10);
+    let (time_h, time_l) = encode_base240(cutoff_time_min);
+    build_frame([
+        CommmandType::ContinueConstantCurrentDischarge as u8,
+        current_h,
+        current_l,
+        cutoff_h,
+        cutoff_l,
+        time_h,
+        time_l,
+    ])
+}
+
+fn timer_sync_command(minutes: u16) -> [u8; OUTBOUND_FRAME_SIZE] {
+    let (min_h, min_l) = encode_base240(minutes);
+    build_frame([
+        CommmandType::TimerSync as u8,
+        min_h,
+        min_l,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+    ])
+}
+
+fn calibration_command(sub: u8, value: u16) -> [u8; OUTBOUND_FRAME_SIZE] {
+    let (val_h, val_l) = encode_base240(value);
+    build_frame([
+        CommmandType::Calibration as u8,
+        sub,
+        val_h,
+        val_l,
+        0x00,
+        0x00,
+        0x00,
     ])
 }
 
@@ -665,6 +729,37 @@ fn start_constant_power_discharge_command(
     ])
 }
 
+fn continue_constant_power_discharge_command(
+    power_w: u16,
+    cutoff_mv: u16,
+    cutoff_time_min: u16,
+) -> [u8; OUTBOUND_FRAME_SIZE] {
+    assert!(
+        (MIN_POWER_W..=MAX_POWER_W).contains(&power_w),
+        "Watts must be between {MIN_POWER_W}W and {MAX_POWER_W}W"
+    );
+    assert!(
+        (MIN_VOLTAGE_MV..=MAX_VOLTAGE_MV).contains(&cutoff_mv),
+        "Cutoff voltage must be between {MIN_VOLTAGE_MV}mV and {MAX_VOLTAGE_MV}mV"
+    );
+    assert!(
+        (cutoff_time_min <= MAX_CUTOFF_TIME_MIN),
+        "Cutoff time must be between 0 and {MAX_CUTOFF_TIME_MIN} minutes"
+    );
+    let (power_h, power_l) = encode_base240(power_w);
+    let (cutoff_h, cutoff_l) = encode_base240(cutoff_mv / 10);
+    let (time_h, time_l) = encode_base240(cutoff_time_min);
+    build_frame([
+        CommmandType::ContinueConstantPowerDischarge as u8,
+        power_h,
+        power_l,
+        cutoff_h,
+        cutoff_l,
+        time_h,
+        time_l,
+    ])
+}
+
 fn start_constant_voltage_charge_command(
     current_ma: u16,
     charge_voltage_mv: u16,
@@ -688,6 +783,37 @@ fn start_constant_voltage_charge_command(
     let (cutoff_current_h, cutoff_current_l) = encode_base240(cutoff_current_ma / 10);
     build_frame([
         CommmandType::StartConstantVoltageCharge as u8,
+        current_h,
+        current_l,
+        charge_voltage_h,
+        charge_voltage_l,
+        cutoff_current_h,
+        cutoff_current_l,
+    ])
+}
+
+fn continue_constant_voltage_charge_command(
+    current_ma: u16,
+    charge_voltage_mv: u16,
+    cutoff_current_ma: u16,
+) -> [u8; OUTBOUND_FRAME_SIZE] {
+    assert!(
+        (MIN_CHARGE_CURRENT_MA..=MAX_CHARGE_CURRENT_MA).contains(&current_ma),
+        "Current must be between {MIN_CHARGE_CURRENT_MA}mA and {MAX_CHARGE_CURRENT_MA}mA"
+    );
+    assert!(
+        (MIN_VOLTAGE_MV..=MAX_VOLTAGE_MV).contains(&charge_voltage_mv),
+        "Charge voltage must be between {MIN_VOLTAGE_MV}mV and {MAX_VOLTAGE_MV}mV"
+    );
+    assert!(
+        (MIN_CHARGE_CUTOFF_CURRENT_MA..=MAX_CHARGE_CUTOFF_CURRENT_MA).contains(&cutoff_current_ma),
+        "Cutoff current must be between {MIN_CHARGE_CUTOFF_CURRENT_MA}mA and {MAX_CHARGE_CUTOFF_CURRENT_MA}mA"
+    );
+    let (current_h, current_l) = encode_base240(current_ma / 10);
+    let (charge_voltage_h, charge_voltage_l) = encode_base240(charge_voltage_mv / 10);
+    let (cutoff_current_h, cutoff_current_l) = encode_base240(cutoff_current_ma / 10);
+    build_frame([
+        CommmandType::ContinueConstantVoltageCharge as u8,
         current_h,
         current_l,
         charge_voltage_h,

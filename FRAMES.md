@@ -27,11 +27,11 @@ Some fields remain unknown and are noted as such.
     - [`0x02` Stop](#0x02-stop)
     - [`0x01` Start Constant Current Discharge](#0x01-start-constant-current-discharge)
     - [`0x07` Adjust Constant Current Discharge](#0x07-adjust-constant-current-discharge)
-    - [`0x08` Resume Constant Current Discharge](#0x08-resume-constant-current-discharge)
+    - [`0x08` Continue Constant Current Discharge](#0x08-continue-constant-current-discharge)
     - [`0x11` Start Constant Power Discharge](#0x11-start-constant-power-discharge)
-    - [`0x18` Resume Constant Power Discharge](#0x18-resume-constant-power-discharge)
+    - [`0x18` Continue Constant Power Discharge](#0x18-continue-constant-power-discharge)
     - [`0x21` Start Constant Voltage Charge](#0x21-start-constant-voltage-charge)
-    - [`0x28` Resume Constant Voltage Charge](#0x28-resume-constant-voltage-charge)
+    - [`0x28` Continue Constant Voltage Charge](#0x28-continue-constant-voltage-charge)
     - [`0x0A` Timer sync](#0x0a-timer-sync)
     - [`0x09` Internal resistance test](#0x09-internal-resistance-test)
     - [`0x04` Calibration](#0x04-calibration)
@@ -252,9 +252,9 @@ current down as the battery voltage falls. Same payload layout as `0x01`.
 200 mA, 3.3 V cutoff, no time limit → fa 07 00 14 01 5a 00 00 48 f8
 ```
 
-### `0x08` Resume Constant Current Discharge
+### `0x08` Continue Constant Current Discharge
 
-Resume a previously stopped CC discharge session. The device continues from
+Continue a previously stopped CC discharge session. The device continues from
 where it left off. Same payload layout as `0x01`.
 
 ```text
@@ -278,9 +278,9 @@ batteries that are sensitive to power draw rather than current.
 | `cutoff_v` | mV ÷ 10, base240 | 10–30000 mV |
 | `time` | minutes, base240 (0 = no limit) | 0–999 min |
 
-### `0x18` Resume Constant Power Discharge
+### `0x18` Continue Constant Power Discharge
 
-Resume a previously stopped CP discharge session. Same payload layout as `0x11`.
+Continue a previously stopped CP discharge session. Same payload layout as `0x11`.
 
 ```text
 1 W, 3.3 V cutoff, no time limit → fa 18 00 01 01 5a 00 00 42 f8
@@ -304,9 +304,9 @@ current falls below the cutoff threshold, which indicates the battery is full.
 | `voltage` | mV ÷ 10, base240 | 10–30000 mV |
 | `cutoff_i` | mA ÷ 10, base240 | 10–9990 mA |
 
-### `0x28` Resume Constant Voltage Charge
+### `0x28` Continue Constant Voltage Charge
 
-Resume a previously stopped CV charge session. Same payload layout as `0x21`.
+Continue a previously stopped CV charge session. Same payload layout as `0x21`.
 
 ```text
 3 A, 4.2 V, 0.1 A cutoff → fa 28 01 3c 01 b4 00 0a aa f8
@@ -538,11 +538,11 @@ All outbound frames are 10 bytes: `[fa] [payload × 7] [chk] [f8]`.
 | `02` | Stop | `00` | `00` | `00` | `00` | `00` | `00` |
 | `01` | Start CC discharge | cur_h | cur_l | v_h | v_l | t_h | t_l |
 | `07` | Adjust CC discharge | cur_h | cur_l | v_h | v_l | t_h | t_l |
-| `08` | Resume CC discharge | cur_h | cur_l | v_h | v_l | t_h | t_l |
+| `08` | Continue CC discharge | cur_h | cur_l | v_h | v_l | t_h | t_l |
 | `11` | Start CP discharge | pw_h | pw_l | v_h | v_l | t_h | t_l |
-| `18` | Resume CP discharge | pw_h | pw_l | v_h | v_l | t_h | t_l |
+| `18` | Continue CP discharge | pw_h | pw_l | v_h | v_l | t_h | t_l |
 | `21` | Start CV charge | cur_h | cur_l | v_h | v_l | ci_h | ci_l |
-| `28` | Resume CV charge | cur_h | cur_l | v_h | v_l | ci_h | ci_l |
+| `28` | Continue CV charge | cur_h | cur_l | v_h | v_l | ci_h | ci_l |
 | `09` | Internal resistance | cur_h | cur_l | `00` | `00` | `00` | `00` |
 | `0a` | Timer sync | min_h | min_l | `00` | `00` | `00` | `00` |
 | `04` | Calibration | sub | val_h | val_l | `00` | `00` | `00` |
