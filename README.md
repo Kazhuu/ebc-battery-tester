@@ -28,6 +28,7 @@ The app is built with Rust using [egui](https://github.com/emilk/egui) and
 - [EBC-A20 Battery Tester](#ebc-a20-battery-tester)
   - [Table of Contents](#table-of-contents)
   - [Missing Features](#missing-features)
+  - [Known Bugs in the Original Software](#known-bugs-in-the-original-software)
   - [Important Notes](#important-notes)
   - [Access USB Device on Browser](#access-usb-device-on-browser)
     - [Windows](#windows)
@@ -53,7 +54,8 @@ These are missing features compared to the original Windows software.
 - Control multiple devices from one software session.
 - Cycles configuration.
 - Plot saving as an image.
-- Data exporting to a CSV file.
+- Data exporting to a CSV and dat files.
+- Opening export cvs and dat files.
 - Internal resistance test.
 - Support for other devices than EBC-A20.
 - Firmware update.
@@ -62,6 +64,16 @@ These are things that require attention from a development perspective.
 
 - Clean up UI code and split it to smaller pieces.
 - Add tests.
+
+## Known Bugs in the Original Software
+
+- All input fields only take , and not . as decimal separator. This software is
+  able to take both. In Europe and China , is used and in USA . is used.
+- Reading graph back to the app from CSV file does not work. The values are read
+  wrong because the , is used for both value separator and decimal separator.
+  `.dat` files import work as there tab character is used as a value separator.
+- Device firmware calculate checksum is sometimes not correct, hence this
+  software is ignoring it.
 
 ## Important Notes
 
