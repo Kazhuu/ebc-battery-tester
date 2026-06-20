@@ -13,11 +13,11 @@ your OS to allow the browser to access the device.
 Native desktop binaries for Linux and Windows can be downloaded from the [GitHub
 releases page](https://github.com/Kazhuu/ebc-battery-tester/releases). This
 should work out of the box with default drivers. If you did the WebUSB setup
-above, you need to undo that in order for native app to discover the serial port.
+above, you need to undo that in order for the native app to discover the serial port.
 
 Also check [Important Notes](#important-notes) before running the app.
 
-If you are interested about the protocol documentation, check [Frame
+If you are interested in the protocol documentation, check [Frame
 Reference](#frame-reference).
 
 The app is built with Rust using [egui](https://github.com/emilk/egui) and
@@ -30,6 +30,7 @@ This project got featured in
 
 - [EBC-A20 Battery Tester](#ebc-a20-battery-tester)
   - [Table of Contents](#table-of-contents)
+  - [Features](#features)
   - [Missing Features](#missing-features)
   - [Known Bugs in the Original Software](#known-bugs-in-the-original-software)
   - [Important Notes](#important-notes)
@@ -50,6 +51,16 @@ This project got featured in
     - [Creating a Release](#creating-a-release)
   - [Important Resources](#important-resources)
 
+## Features
+
+- Almost all original software features, see [Missing
+  Features](#missing-features).
+- All input fields support both , and . as a decimal separator.
+- Checks for updates automatically and notifies the user when a newer version is
+  available.
+- Log and save all low-level communication between software and device.
+- Better built-in guidance for the user, e.g. how to do calibration.
+
 ## Missing Features
 
 These are missing features compared to the original Windows software.
@@ -57,8 +68,8 @@ These are missing features compared to the original Windows software.
 - Control multiple devices from one software session.
 - Cycles configuration.
 - Plot saving as an image.
-- Data exporting to a CSV and dat files.
-- Opening export cvs and dat files.
+- Data export to CSV and .dat files.
+- Opening exported CSV and .dat files.
 - Internal resistance test.
 - Support for other devices than EBC-A20.
 - Firmware update.
@@ -74,11 +85,11 @@ These are things that require attention from a development perspective.
   able to take both. In Europe and China , is used and in USA . is used.
 - Reading graph back to the app from CSV file does not work. The values are read
   wrong because the , is used for both value separator and decimal separator.
-  `.dat` files import work as there tab character is used as a value separator.
+  `.dat` file imports work as a tab character is used as a value separator.
 - Device screen is reporting firmware version v3.0.3, but v3.0.2 is reported
-  over the USB serial. Hence this and original software reports the version as
+  over the USB serial. Hence both this and the original software report the version as
   v3.0.2 and not v3.0.3.
-- Device firmware calculate checksum is sometimes not correct, hence this
+- The device firmware checksum calculation is sometimes incorrect, hence this
   software is ignoring it. For me this was the case with older firmware when I
   constant current discharged with 1A to 3.3V. The checksum bug happened
   around 2 mins of discharging. I did not observe this anymore with the newest
@@ -99,7 +110,7 @@ end is a mini USB plug, so any regular mini USB cable will not work.
 This configuration is only needed if you run the app via web browser. Native
 apps work out of the box.
 
-By default WebUSB cannot access the device from the browser as OS driver has
+By default, WebUSB cannot access the device from the browser as the OS driver has
 already claimed the device, locking the browser out. In order to use WebUSB, you
 need to do additional steps. Read the steps for your OS below.
 
@@ -108,7 +119,7 @@ need to do additional steps. Read the steps for your OS below.
 On Windows you most likely installed the driver that came with the original app.
 This driver will claim the device when you plug in the USB cable. Hence the
 browser will not be able to access the device. You need to change the driver
-with more generic WinUSB driver. When you do this, the COM port will not appear
+with a more generic WinUSB driver. When you do this, the COM port will not appear
 in the original Windows software anymore. To return the old behavior, you can
 always install the original manufacturer driver using the software bundled
 with the Windows app.
@@ -130,7 +141,7 @@ connect to the device using WebUSB.
 
 When you plug in the USB cable, the Linux `ch341` driver will claim the USB device
 and you cannot connect to it using WebUSB anymore. You need to unbind it first.
-You can do one time unbind with following command. This will work until you plug
+You can do a one-time unbind with the following command. This will work until you plug
 in the USB cable again.
 
 ```bash
@@ -138,7 +149,7 @@ sudo sh -c 'echo "1-2.3:1.0" > /sys/bus/usb/drivers/ch341/unbind'
 ```
 
 If you want to automatically unbind this when the cable is plugged in, you can
-add the following udev rule
+add the following udev rule.
 
 ```bash
 sudo tee /etc/udev/rules.d/99-ebc-tester.rules << 'EOF'
@@ -181,7 +192,7 @@ in two ways.
 
 **`extract_firmware_from_exe.py`** — extracts all device firmware images from
 the Windows software exe file. The firmware files are not included in this repo
-for legal reason, but you can easily dump them on your own with this script.
+for legal reasons, but you can easily dump them on your own with this script.
 This will output the extracted firmware in `fw_out` folder in project root.
 
 ```bash
