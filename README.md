@@ -23,6 +23,9 @@ Reference](#frame-reference).
 The app is built with Rust using [egui](https://github.com/emilk/egui) and
 [eframe](https://github.com/emilk/egui/tree/master/crates/eframe).
 
+This project got featured in
+[Hackaday](https://hackaday.com/2026/06/18/battery-tester-gets-an-app-upgrade/).
+
 ## Table of Contents
 
 - [EBC-A20 Battery Tester](#ebc-a20-battery-tester)
@@ -72,8 +75,14 @@ These are things that require attention from a development perspective.
 - Reading graph back to the app from CSV file does not work. The values are read
   wrong because the , is used for both value separator and decimal separator.
   `.dat` files import work as there tab character is used as a value separator.
+- Device screen is reporting firmware version v3.0.3, but v3.0.2 is reported
+  over the USB serial. Hence this and original software reports the version as
+  v3.0.2 and not v3.0.3.
 - Device firmware calculate checksum is sometimes not correct, hence this
-  software is ignoring it.
+  software is ignoring it. For me this was the case with older firmware when I
+  constant current discharged with 1A to 3.3V. The checksum bug happened
+  around 2 mins of discharging. I did not observe this anymore with the newest
+  firmware.
 
 ## Important Notes
 
