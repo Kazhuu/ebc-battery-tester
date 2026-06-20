@@ -3,8 +3,7 @@ use futures::channel::mpsc::UnboundedSender;
 const RELEASES_API_URL: &str =
     "https://api.github.com/repos/Kazhuu/ebc-battery-tester/releases/latest";
 
-pub const RELEASES_PAGE_URL: &str =
-    "https://github.com/Kazhuu/ebc-battery-tester/releases";
+pub const RELEASES_PAGE_URL: &str = "https://github.com/Kazhuu/ebc-battery-tester/releases";
 
 #[derive(Debug, Clone)]
 pub enum UpdateCheckState {
