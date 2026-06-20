@@ -79,6 +79,12 @@ pub struct MainApp {
     mode_start_time: f64,
     #[serde(skip)]
     mode_accumulated_secs: f64,
+    #[cfg(not(target_arch = "wasm32"))]
+    #[serde(skip)]
+    update_check_state: crate::update_check::UpdateCheckState,
+    #[cfg(not(target_arch = "wasm32"))]
+    #[serde(skip)]
+    update_check_rx: UnboundedReceiver<crate::update_check::UpdateCheckState>,
 }
 
 impl Default for MainApp {
@@ -119,6 +125,10 @@ impl Default for MainApp {
             last_timer_sync_min: 0,
             mode_start_time: 0.0,
             mode_accumulated_secs: 0.0,
+            #[cfg(not(target_arch = "wasm32"))]
+            update_check_state: crate::update_check::UpdateCheckState::Checking,
+            #[cfg(not(target_arch = "wasm32"))]
+            update_check_rx: mpsc::unbounded().1,
         }
     }
 }
@@ -141,6 +151,12 @@ impl MainApp {
         app.cmd_tx = cmd_tx;
         app.event_rx = event_rx;
         app.event_tx = event_tx;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let (update_tx, update_rx) = mpsc::unbounded();
+            crate::update_check::spawn_update_check(cc.egui_ctx.clone(), update_tx);
+            app.update_check_rx = update_rx;
+        }
         app
     }
 
@@ -263,6 +279,10 @@ impl MainApp {
     }
 
     fn consume_events(&mut self, ctx: &egui::Context) {
+        #[cfg(not(target_arch = "wasm32"))]
+        while let Ok(state) = self.update_check_rx.try_recv() {
+            self.update_check_state = state;
+        }
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
                 DeviceEvent::StatusChanged(status) => {
@@ -863,7 +883,32 @@ impl MainApp {
                 .resizable(false)
                 .show(ui.ctx(), |ui| {
                     ui.heading("EBC Battery Tester");
-                    ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                    ui.horizontal(|ui| {
+                        ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            match &self.update_check_state {
+                                crate::update_check::UpdateCheckState::Checking => {
+                                    ui.spinner();
+                                    ui.weak("checking...");
+                                }
+                                crate::update_check::UpdateCheckState::UpToDate => {
+                                    ui.label("(up to date)");
+                                }
+                                crate::update_check::UpdateCheckState::UpdateAvailable(tag) => {
+                                    ui.colored_label(
+                                        ui.visuals().warn_fg_color,
+                                        format!("({tag} available)"),
+                                    );
+                                    ui.hyperlink_to(
+                                        "Download",
+                                        crate::update_check::RELEASES_PAGE_URL,
+                                    );
+                                }
+                                crate::update_check::UpdateCheckState::Failed => {}
+                            }
+                        }
+                    });
                     ui.add_space(4.0);
                     ui.label(
                         "Open source, cross-platform desktop and browser application to \
@@ -1103,6 +1148,29 @@ impl eframe::App for MainApp {
                 ui.separator();
                 if ui.button("About").clicked() {
                     self.open_about_window = true;
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    match &self.update_check_state {
+                        crate::update_check::UpdateCheckState::Checking => {
+                            ui.separator();
+                            ui.spinner();
+                            ui.weak("Checking for updates...");
+                        }
+                        crate::update_check::UpdateCheckState::UpToDate => {
+                            ui.separator();
+                            ui.label(format!("v{} (up to date)", env!("CARGO_PKG_VERSION")));
+                        }
+                        crate::update_check::UpdateCheckState::UpdateAvailable(tag) => {
+                            ui.separator();
+                            ui.colored_label(
+                                ui.visuals().warn_fg_color,
+                                format!("Update available: {tag}"),
+                            );
+                            ui.hyperlink_to("Download", crate::update_check::RELEASES_PAGE_URL);
+                        }
+                        crate::update_check::UpdateCheckState::Failed => {}
+                    }
                 }
             });
         });

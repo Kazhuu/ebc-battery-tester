@@ -26,6 +26,7 @@ rfd = "0.15"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11.8"
 serialport = "4"
+ureq = { version = "2", features = ["json"] }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]

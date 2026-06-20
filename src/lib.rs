@@ -6,6 +6,9 @@ mod usb;
 #[path = "usb_native.rs"]
 mod usb;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod update_check;
+
 mod app;
 mod device;
 mod export;
