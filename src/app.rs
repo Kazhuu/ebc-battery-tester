@@ -385,6 +385,7 @@ impl MainApp {
                 }
                 ConnectionStatus::Connected => {
                     if ui.button("Disconnect").clicked() {
+                        self.send_cmd(OutboundFrame::Stop, ui.ctx());
                         self.send_cmd(OutboundFrame::Disconnect, ui.ctx());
                     }
                 }
@@ -1118,6 +1119,15 @@ impl MainApp {
 impl eframe::App for MainApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
+    }
+
+    // On application exit, send a Stop and Disconnect command to the device.
+    // Sending stop will stop the current mode if it is running and sending
+    // disconnect will disconnect the device. This is important to do so that
+    // the device is not left in a running state when the application exits.
+    fn on_exit(&mut self) {
+        self.cmd_tx.unbounded_send(OutboundFrame::Stop).ok();
+        self.cmd_tx.unbounded_send(OutboundFrame::Disconnect).ok();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
