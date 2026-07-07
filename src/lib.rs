@@ -12,4 +12,6 @@ mod update_check;
 mod app;
 mod device;
 mod export;
+mod session;
+mod ui;
 pub use app::MainApp;
