@@ -76,7 +76,6 @@ These are missing features compared to the original Windows software.
 
 These are things that require attention from a development perspective.
 
-- Clean up UI code and split it to smaller pieces.
 - Add tests.
 
 ## Known Bugs in the Original Software
