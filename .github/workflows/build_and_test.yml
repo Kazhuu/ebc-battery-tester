@@ -56,8 +56,10 @@ jobs:
           rustup component add clippy
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-      - name: Run Clippy
-        run: cargo clippy --quiet --workspace --all-targets --all-features --  -D warnings -W clippy::all
+      - name: Clippy native
+        run: cargo clippy --quiet --workspace --all-targets --all-features -- -D warnings -W clippy::all
+      - name: Clippy wasm
+        run: cargo clippy --quiet --workspace --all-features --lib --target wasm32-unknown-unknown -- -D warnings -W clippy::all
 
   test:
     runs-on: ubuntu-latest

@@ -1,3 +1,4 @@
+#[cfg_attr(target_arch = "wasm32", derive(Default))]
 pub(crate) struct AboutWindow {
     pub(crate) open: bool,
     #[cfg(not(target_arch = "wasm32"))]
@@ -7,13 +8,14 @@ pub(crate) struct AboutWindow {
         futures::channel::mpsc::UnboundedReceiver<crate::update_check::UpdateCheckState>,
 }
 
+// `UpdateCheckState` and `UnboundedReceiver` have no `Default`, so this can't
+// be derived on native — wasm has neither field and derives it above instead.
+#[cfg(not(target_arch = "wasm32"))]
 impl Default for AboutWindow {
     fn default() -> Self {
         Self {
             open: false,
-            #[cfg(not(target_arch = "wasm32"))]
             update_check_state: crate::update_check::UpdateCheckState::Checking,
-            #[cfg(not(target_arch = "wasm32"))]
             update_check_rx: futures::channel::mpsc::unbounded().1,
         }
     }
@@ -33,12 +35,17 @@ impl AboutWindow {
     }
 
     /// Drains newly arrived update-check results. Called once per frame.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn poll(&mut self) {
-        #[cfg(not(target_arch = "wasm32"))]
         while let Ok(state) = self.update_check_rx.try_recv() {
             self.update_check_state = state;
         }
     }
+
+    /// No-op on wasm: there is no update-check channel to poll on that target.
+    #[cfg(target_arch = "wasm32")]
+    #[expect(clippy::unused_self)]
+    pub(crate) fn poll(&self) {}
 
     pub(crate) fn ui(&mut self, ui: &egui::Ui) {
         if !self.open {
