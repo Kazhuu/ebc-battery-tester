@@ -170,7 +170,8 @@ Now you should be able to connect to the serial port with WebUSB.
 
 This will prevent using the native app as it will not be able to connect to the
 USB port anymore. To restore the original behavior, just remove the udev rule
-added above.
+added above and reload udev rules with `sudo udevadm control --reload-rules` and
+reconnect the USB cable.
 
 ## Reverse Engineering
 
