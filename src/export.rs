@@ -76,3 +76,61 @@ pub fn save_log_to_file(entries: &[LogEntry]) {
     anchor.click();
     web_sys::Url::revoke_object_url(&url).ok();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_log_writes_hex_bytes() {
+        let entries = [LogEntry {
+            direction: LogDirection::In,
+            label: "hello".to_owned(),
+            timestamp: 65.0, // 1 minute, 5 seconds
+            raw_bytes: vec![0xde, 0xad, 0xbe, 0xef],
+        }];
+
+        let out = format_log(&entries);
+
+        assert!(out.contains("00:01:05"));
+        assert!(out.contains("IN "));
+        assert!(out.contains("hello"));
+        assert!(out.contains("de ad be ef"));
+    }
+
+    #[test]
+    fn format_log_empty_entries() {
+        let entries: [LogEntry; 0] = [];
+        let out = format_log(&entries);
+
+        assert_eq!(out, "");
+    }
+
+    #[test]
+    fn format_log_multiple_entries() {
+        let entries = [
+            LogEntry {
+                direction: LogDirection::In,
+                label: "first".to_owned(),
+                timestamp: 10.0,
+                raw_bytes: vec![0x01, 0x02],
+            },
+            LogEntry {
+                direction: LogDirection::Out,
+                label: "second".to_owned(),
+                timestamp: 20.0,
+                raw_bytes: vec![0x03, 0x04],
+            },
+        ];
+        let out = format_log(&entries);
+
+        assert!(out.contains("00:00:10"));
+        assert!(out.contains("IN "));
+        assert!(out.contains("first"));
+        assert!(out.contains("01 02"));
+        assert!(out.contains("00:00:20"));
+        assert!(out.contains("OUT"));
+        assert!(out.contains("second"));
+        assert!(out.contains("03 04"));
+    }
+}

@@ -64,3 +64,32 @@ fn is_newer(latest: &str, current: &str) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_newer() {
+        assert!(is_newer("1.0.1", "1.0.0"));
+        assert!(is_newer("1.1.0", "1.0.9"));
+        assert!(is_newer("2.0.0", "1.9.9"));
+        assert!(!is_newer("1.0.0", "1.0.0"));
+        assert!(!is_newer("1.0.0", "1.0.1"));
+        assert!(!is_newer("1.0", "1.0.1")); // Invalid version format
+        assert!(!is_newer("invalid", "1.0.1")); // Invalid version format
+    }
+
+    #[test]
+    fn test_parse_version() {
+        assert_eq!(parse_version("1.2.3"), Some((1, 2, 3)));
+        assert_eq!(parse_version("0.0.1"), Some((0, 0, 1)));
+        assert_eq!(parse_version("10.20.30"), Some((10, 20, 30)));
+        assert_eq!(parse_version("1.2"), None); // Missing patch version
+        assert_eq!(parse_version("1.2.3 4"), None); // Too many components
+        assert_eq!(parse_version("1.2.x"), None); // Non-numeric component
+        assert_eq!(parse_version(""), None); // Empty string
+        assert_eq!(parse_version("1"), None); // Only major version
+        assert_eq!(parse_version("1.2.3.4"), None); // Too many components
+    }
+}
