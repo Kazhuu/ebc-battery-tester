@@ -11,7 +11,7 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 pub(crate) struct DeviceSession {
     pub(crate) available_devices: Vec<device::UsbDeviceInfo>,
     pub(crate) selected_device_index: Option<usize>,
-    pub(crate) cmd_tx: UnboundedSender<OutboundFrame>,
+    cmd_tx: UnboundedSender<OutboundFrame>,
     event_rx: UnboundedReceiver<DeviceEvent>,
     pub(crate) event_tx: UnboundedSender<DeviceEvent>,
     pub(crate) status: ConnectionStatus,
@@ -25,7 +25,6 @@ pub(crate) struct DeviceSession {
     pub(crate) current_device_mode: Option<device::DeviceMode>,
     pub(crate) mode_on: bool,
     pub(crate) log_entries: Vec<LogEntry>,
-    last_timer_sync_min: u64,
     mode_start_time: f64,
     mode_accumulated_secs: f64,
 }
@@ -49,7 +48,6 @@ impl Default for DeviceSession {
             current_device_mode: None,
             mode_on: false,
             log_entries: Vec::new(),
-            last_timer_sync_min: 0,
             mode_start_time: 0.0,
             mode_accumulated_secs: 0.0,
         }
@@ -92,7 +90,6 @@ impl DeviceSession {
         self.mode_on = true;
         self.mode_start_time = ctx.input(|i| i.time);
         self.mode_accumulated_secs = 0.0;
-        self.last_timer_sync_min = 0;
         self.voltage_points.clear();
         self.amperes_points.clear();
     }
@@ -108,21 +105,6 @@ impl DeviceSession {
         self.mode_accumulated_secs += now - self.mode_start_time;
         self.mode_start_time = 0.0;
         self.mode_on = false;
-    }
-
-    /// Sends a `TimerSync` command every minute when any mode is active. This
-    /// is what the original Windows software is also doing, but the purpose
-    /// of this is not confirmed.
-    pub(crate) fn send_timer_sync_if_needed(&mut self, ctx: &egui::Context) {
-        if !self.mode_on {
-            return;
-        }
-        let now = ctx.input(|i| i.time);
-        let elapsed_mins = (self.elapsed_secs(now) / 60.0) as u64;
-        if elapsed_mins > self.last_timer_sync_min {
-            self.last_timer_sync_min = elapsed_mins;
-            self.send_cmd(OutboundFrame::TimerSync(elapsed_mins as u16), ctx);
-        }
     }
 
     pub(crate) fn send_cmd(&mut self, frame: OutboundFrame, ctx: &egui::Context) {
@@ -224,6 +206,8 @@ impl DeviceSession {
         }
     }
 
+    /// Consumes all pending events from the device event receiver and handles
+    /// them accordingly.
     pub(crate) fn consume_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
@@ -276,6 +260,15 @@ impl DeviceSession {
                             );
                         }
                     }
+                }
+                DeviceEvent::FrameSent(frame, raw_bytes) => {
+                    log::info!("Sent frame: {frame:?}");
+                    self.log_entries.push(LogEntry {
+                        direction: LogDirection::Out,
+                        label: format!("{frame:?}"),
+                        timestamp: ctx.input(|i| i.time),
+                        raw_bytes,
+                    });
                 }
             }
         }

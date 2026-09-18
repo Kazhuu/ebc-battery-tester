@@ -480,6 +480,10 @@ pub enum DeviceEvent {
     // Vec of available devices.
     DevicesUpdated(Vec<UsbDeviceInfo>),
     Frame(InboundFrame, Vec<u8>),
+    // A frame the worker sent to the device on its own, outside the UI
+    // thread's `send_cmd` (e.g. a `TimerSync` triggered by the worker's own
+    // clock), reported back so it still shows up in the log.
+    FrameSent(OutboundFrame, Vec<u8>),
 }
 
 impl std::fmt::Debug for DeviceEvent {
@@ -489,6 +493,9 @@ impl std::fmt::Debug for DeviceEvent {
             Self::DevicesUpdated(d) => f.debug_tuple("DevicesUpdated").field(d).finish(),
             Self::Frame(frame, _) => {
                 write!(f, "Frame({frame:?})")
+            }
+            Self::FrameSent(frame, _) => {
+                write!(f, "FrameSent({frame:?})")
             }
         }
     }

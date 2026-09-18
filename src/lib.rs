@@ -13,5 +13,6 @@ mod app;
 mod device;
 mod export;
 mod session;
+mod timer_sync;
 mod ui;
 pub use app::MainApp;

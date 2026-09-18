@@ -21,6 +21,7 @@ serde = { version = "1.0.219", features = ["derive"] }
 futures = "0.3.32"
 egui_plot = "0.35.0"
 rfd = "0.15"
+web-time = "1.1.0"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

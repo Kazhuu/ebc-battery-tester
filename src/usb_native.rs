@@ -1,7 +1,9 @@
 use std::io::{Read as _, Write as _};
+use web_time::Instant;
 
-use crate::device::{
-    ConnectionStatus, DeviceEvent, OUTBOUND_FRAME_SIZE, OutboundFrame, UsbDeviceInfo,
+use crate::{
+    device::{ConnectionStatus, DeviceEvent, OUTBOUND_FRAME_SIZE, OutboundFrame, UsbDeviceInfo},
+    timer_sync::TimerSync,
 };
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use serialport::SerialPortType;
@@ -66,6 +68,33 @@ fn connect(idx: usize) -> Result<Box<dyn serialport::SerialPort>, String> {
     Ok(port)
 }
 
+/// Sends a `TimerSync` frame if the timer sync logic indicates that a new
+/// minute boundary has been crossed since the last call.
+fn send_time_sync_if_needed(
+    time_sync: &mut TimerSync,
+    port: &mut Option<Box<dyn serialport::SerialPort>>,
+    event_tx: &UnboundedSender<DeviceEvent>,
+    ctx: &egui::Context,
+) {
+    if let Some(frame) = time_sync.check(Instant::now())
+        && let Some(p) = port
+    {
+        let bytes: [u8; OUTBOUND_FRAME_SIZE] = frame.clone().into();
+        match p.write_all(&bytes) {
+            Ok(()) => {
+                event_tx
+                    .unbounded_send(DeviceEvent::FrameSent(frame, bytes.to_vec()))
+                    .ok();
+                ctx.request_repaint();
+            }
+            Err(e) => {
+                log::error!("Failed to send timer sync frame: {e}");
+                time_sync.mode_stopped(Instant::now());
+            }
+        }
+    }
+}
+
 #[expect(clippy::needless_pass_by_value)]
 fn device_thread(
     ctx: egui::Context,
@@ -74,8 +103,11 @@ fn device_thread(
 ) -> ! {
     let mut port: Option<Box<dyn serialport::SerialPort>> = None;
     let mut buffer: Vec<u8> = Vec::new();
+    let mut time_sync = TimerSync::new();
 
     loop {
+        // Process any commands from the UI thread, including connect/disconnect
+        // and mode control commands.
         loop {
             match cmd_rx.try_recv() {
                 Ok(OutboundFrame::Connect(idx)) => {
@@ -99,6 +131,7 @@ fn device_thread(
                                     ConnectionStatus::Error(e),
                                 ))
                                 .ok();
+                            time_sync.mode_stopped(Instant::now());
                         }
                     }
                     ctx.request_repaint();
@@ -115,9 +148,24 @@ fn device_thread(
                     event_tx
                         .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Disconnected))
                         .ok();
+                    time_sync.mode_stopped(Instant::now());
                     ctx.request_repaint();
                 }
                 Ok(frame) => {
+                    match frame {
+                        OutboundFrame::Stop => time_sync.mode_stopped(Instant::now()),
+                        OutboundFrame::ContinueConstantCurrentDischarge(..)
+                        | OutboundFrame::ContinueConstantPowerDischarge(..)
+                        | OutboundFrame::ContinueConstantVoltageCharge(..) => {
+                            time_sync.mode_continued(Instant::now());
+                        }
+                        OutboundFrame::StartConstantCurrentDischarge(..)
+                        | OutboundFrame::StartConstantPowerDischarge(..)
+                        | OutboundFrame::StartConstantVoltageCharge(..) => {
+                            time_sync.mode_started(Instant::now());
+                        }
+                        _ => {}
+                    }
                     if let Some(ref mut p) = port {
                         let bytes: [u8; OUTBOUND_FRAME_SIZE] = frame.into();
                         if let Err(e) = p.write_all(&bytes) {
@@ -129,6 +177,9 @@ fn device_thread(
             }
         }
 
+        send_time_sync_if_needed(&mut time_sync, &mut port, &event_tx, &ctx);
+
+        // Read any available data from the device, and process it into frames.
         if let Some(ref mut p) = port {
             let mut temp_buffer = [0u8; 64];
             match p.read(&mut temp_buffer) {
@@ -150,6 +201,7 @@ fn device_thread(
                             "Read error: connection lost".to_owned(),
                         )))
                         .ok();
+                    time_sync.mode_stopped(Instant::now());
                     ctx.request_repaint();
                 }
             }
