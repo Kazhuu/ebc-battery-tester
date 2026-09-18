@@ -17,6 +17,7 @@ const INBOUND_BUFFER_SIZE: u32 = 64;
 /// explicit timer merged into the command-handling loop below.
 const TIMER_SYNC_TICK_MS: i32 = 250;
 
+#[expect(clippy::too_many_lines)]
 pub(super) async fn device_task(
     ctx: egui::Context,
     mut cmd_rx: UnboundedReceiver<OutboundFrame>,
