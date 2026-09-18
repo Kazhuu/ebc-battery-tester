@@ -99,7 +99,7 @@ fn send_time_sync_if_needed(
     }
 }
 
-#[expect(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value, clippy::too_many_lines)]
 pub(crate) fn device_thread(
     ctx: egui::Context,
     mut cmd_rx: UnboundedReceiver<OutboundFrame>,

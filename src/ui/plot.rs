@@ -18,7 +18,11 @@ pub(crate) fn ui(session: &DeviceSession, ui: &mut egui::Ui) {
         };
 
     Plot::new("live_data_plot")
-        .legend(Legend::default().position(egui_plot::Corner::LeftTop).title("Live Data"))
+        .legend(
+            Legend::default()
+                .position(egui_plot::Corner::LeftTop)
+                .title("Live Data"),
+        )
         .label_formatter(label_formatter)
         .custom_x_axes(vec![
             AxisHints::new_x()
