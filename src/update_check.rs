@@ -3,17 +3,17 @@ use futures::channel::mpsc::UnboundedSender;
 const RELEASES_API_URL: &str =
     "https://api.github.com/repos/Kazhuu/ebc-battery-tester/releases/latest";
 
-pub const RELEASES_PAGE_URL: &str = "https://github.com/Kazhuu/ebc-battery-tester/releases";
+pub(crate) const RELEASES_PAGE_URL: &str = "https://github.com/Kazhuu/ebc-battery-tester/releases";
 
 #[derive(Debug, Clone)]
-pub enum UpdateCheckState {
+pub(crate) enum UpdateCheckState {
     Checking,
     UpdateAvailable(String),
     UpToDate,
     Failed,
 }
 
-pub fn spawn_update_check(ctx: egui::Context, tx: UnboundedSender<UpdateCheckState>) {
+pub(crate) fn spawn_update_check(ctx: egui::Context, tx: UnboundedSender<UpdateCheckState>) {
     std::thread::spawn(move || {
         let state = match fetch_latest_tag() {
             Ok(tag) => {

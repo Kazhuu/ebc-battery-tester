@@ -12,7 +12,7 @@ const BAUD_RATE: u32 = 9600;
 const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_millis(10);
 
 #[expect(clippy::needless_pass_by_value)]
-pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
+pub(crate) fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
     let all_ports = serialport::available_ports().unwrap_or_default();
     log::debug!("All serial ports: {all_ports:?}");
     let devices = all_ports
@@ -36,7 +36,7 @@ pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
         .ok();
 }
 
-pub fn spawn_device_worker(
+pub(crate) fn spawn_device_worker(
     ctx: egui::Context,
     cmd_rx: UnboundedReceiver<OutboundFrame>,
     event_tx: UnboundedSender<DeviceEvent>,
@@ -53,7 +53,7 @@ fn find_ch340_port(idx: usize) -> Option<String> {
         .map(|p| p.port_name)
 }
 
-fn connect(idx: usize) -> Result<Box<dyn serialport::SerialPort>, String> {
+pub(crate) fn connect(idx: usize) -> Result<Box<dyn serialport::SerialPort>, String> {
     let name = find_ch340_port(idx).ok_or_else(|| format!("No CH340 device at index {idx}"))?;
     let mut port = serialport::new(&name, BAUD_RATE)
         .data_bits(serialport::DataBits::Eight)
@@ -96,7 +96,7 @@ fn send_time_sync_if_needed(
 }
 
 #[expect(clippy::needless_pass_by_value)]
-fn device_thread(
+pub(crate) fn device_thread(
     ctx: egui::Context,
     mut cmd_rx: UnboundedReceiver<OutboundFrame>,
     event_tx: UnboundedSender<DeviceEvent>,

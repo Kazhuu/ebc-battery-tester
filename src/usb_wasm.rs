@@ -8,7 +8,7 @@ mod connection;
 #[path = "usb_wasm/worker.rs"]
 mod worker;
 
-pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
+pub(crate) fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
     wasm_bindgen_futures::spawn_local(async move {
         let Some(window) = web_sys::window() else {
             return;
@@ -51,7 +51,7 @@ pub fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
     });
 }
 
-pub fn request_device(event_tx: UnboundedSender<DeviceEvent>) {
+pub(crate) fn request_device(event_tx: UnboundedSender<DeviceEvent>) {
     wasm_bindgen_futures::spawn_local(async move {
         let Some(window) = web_sys::window() else {
             return;
@@ -69,7 +69,7 @@ pub fn request_device(event_tx: UnboundedSender<DeviceEvent>) {
     });
 }
 
-pub fn spawn_device_worker(
+pub(crate) fn spawn_device_worker(
     ctx: egui::Context,
     cmd_rx: UnboundedReceiver<OutboundFrame>,
     event_tx: UnboundedSender<DeviceEvent>,

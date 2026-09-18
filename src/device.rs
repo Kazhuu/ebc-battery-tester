@@ -1,40 +1,40 @@
 use serde::{Deserialize, Serialize};
 
-pub const VENDOR_ID: u16 = 0x1A86;
+pub(crate) const VENDOR_ID: u16 = 0x1A86;
 
-pub const INBOUND_FRAME_SIZE: usize = 19;
-pub const OUTBOUND_FRAME_SIZE: usize = 10;
+pub(crate) const INBOUND_FRAME_SIZE: usize = 19;
+pub(crate) const OUTBOUND_FRAME_SIZE: usize = 10;
 
 // Start of Frame (SOF) and End of Frame (EOF) bytes.
-pub const START_BYTE: u8 = 0xfa;
-pub const END_BYTE: u8 = 0xf8;
+pub(crate) const START_BYTE: u8 = 0xfa;
+pub(crate) const END_BYTE: u8 = 0xf8;
 
-pub const MIN_DISCHARGE_CURRENT_MA: u16 = 10;
-pub const MAX_DISCHARGE_CURRENT_MA: u16 = 20000;
-pub const MIN_CHARGE_CURRENT_MA: u16 = 10;
-pub const MAX_CHARGE_CURRENT_MA: u16 = 5000;
-pub const MIN_CHARGE_CUTOFF_CURRENT_MA: u16 = 10;
-pub const MAX_CHARGE_CUTOFF_CURRENT_MA: u16 = 9990;
-pub const MIN_POWER_W: u16 = 1;
-pub const MAX_POWER_W: u16 = 999;
-pub const MIN_VOLTAGE_MV: u16 = 10;
-pub const MAX_VOLTAGE_MV: u16 = 30000;
-pub const MIN_CUTOFF_TIME_MIN: u16 = 0;
-pub const MAX_CUTOFF_TIME_MIN: u16 = 999;
+pub(crate) const MIN_DISCHARGE_CURRENT_MA: u16 = 10;
+pub(crate) const MAX_DISCHARGE_CURRENT_MA: u16 = 20000;
+pub(crate) const MIN_CHARGE_CURRENT_MA: u16 = 10;
+pub(crate) const MAX_CHARGE_CURRENT_MA: u16 = 5000;
+pub(crate) const MIN_CHARGE_CUTOFF_CURRENT_MA: u16 = 10;
+pub(crate) const MAX_CHARGE_CUTOFF_CURRENT_MA: u16 = 9990;
+pub(crate) const MIN_POWER_W: u16 = 1;
+pub(crate) const MAX_POWER_W: u16 = 999;
+pub(crate) const MIN_VOLTAGE_MV: u16 = 10;
+pub(crate) const MAX_VOLTAGE_MV: u16 = 30000;
+pub(crate) const MIN_CUTOFF_TIME_MIN: u16 = 0;
+pub(crate) const MAX_CUTOFF_TIME_MIN: u16 = 999;
 // Max minutes to wait between charge and discharge cycle.
 #[expect(unused)]
-pub const AUTO_MODE_TIME_MIN_MINS: u16 = 0;
+pub(crate) const AUTO_MODE_TIME_MIN_MINS: u16 = 0;
 #[expect(unused)]
-pub const AUTO_MODE_TIME_MAX_MINS: u16 = 10;
+pub(crate) const AUTO_MODE_TIME_MAX_MINS: u16 = 10;
 
 // ZKETECH EBC model codes sent from the device.
-enum DeviceType {
+pub(crate) enum DeviceType {
     EbcA05 = 0x05,
     EbcA10H = 0x06,
     EbcA20 = 0x09,
 }
 
-fn get_device_model_name(device_type_code: u8) -> String {
+pub(crate) fn get_device_model_name(device_type_code: u8) -> String {
     match device_type_code {
         x if x == DeviceType::EbcA05 as u8 => "EBC-A05".to_owned(),
         x if x == DeviceType::EbcA10H as u8 => "EBC-A10H".to_owned(),
@@ -43,11 +43,11 @@ fn get_device_model_name(device_type_code: u8) -> String {
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UsbDeviceInfo {
-    pub product_name: String,
-    pub manufacturer_name: String,
-    pub vendor_id: u16,
-    pub product_id: u16,
+pub(crate) struct UsbDeviceInfo {
+    pub(crate) product_name: String,
+    pub(crate) manufacturer_name: String,
+    pub(crate) vendor_id: u16,
+    pub(crate) product_id: u16,
 }
 
 impl std::fmt::Display for UsbDeviceInfo {
@@ -69,7 +69,7 @@ impl std::fmt::Display for UsbDeviceInfo {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ConnectionStatus {
+pub(crate) enum ConnectionStatus {
     Disconnected,
     Connecting,
     Connected,
@@ -77,7 +77,7 @@ pub enum ConnectionStatus {
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DeviceMode {
+pub(crate) enum DeviceMode {
     DischargeConstantCurrent,
     DischargeConstantPower,
     ChargeConstantVoltage,
@@ -94,7 +94,7 @@ impl std::fmt::Display for DeviceMode {
 }
 
 #[derive(Debug, Clone)]
-pub enum OutboundFrame {
+pub(crate) enum OutboundFrame {
     // Send connect command to the device. This will display '-PC-' on the LCD
     // screen. The usize is the index of the device to connect to.
     Connect(usize),
@@ -240,76 +240,76 @@ enum StatusReportType {
 }
 
 #[derive(Clone, Debug)]
-pub struct FirmwareReport {
-    pub device_mode: DeviceMode,
-    pub in_progress: bool,
-    pub current_ma: u16,
-    pub voltage_mv: u16,
-    pub milli_ampere_hours: u16,
+pub(crate) struct FirmwareReport {
+    pub(crate) device_mode: DeviceMode,
+    pub(crate) in_progress: bool,
+    pub(crate) current_ma: u16,
+    pub(crate) voltage_mv: u16,
+    pub(crate) milli_ampere_hours: u16,
     #[expect(unused)]
-    pub unknown: u16, // Always 0.
-    pub firmware_version: String,
+    pub(crate) unknown: u16, // Always 0.
+    pub(crate) firmware_version: String,
     // Calibration parameters, offset and gain maybe?
     #[expect(unused)]
-    pub unknown1: u16, // Always 2988
+    pub(crate) unknown1: u16, // Always 2988
     #[expect(unused)]
-    pub unknown2: u16, // Always 2087
-    pub device_type: String,
+    pub(crate) unknown2: u16, // Always 2087
+    pub(crate) device_type: String,
 }
 
 #[derive(Clone, Debug)]
-pub struct ChargeReport {
-    pub in_progress: bool,
-    pub current_ma: u16,
-    pub voltage_mv: u16,
-    pub milli_ampere_hours: u16,
+pub(crate) struct ChargeReport {
+    pub(crate) in_progress: bool,
+    pub(crate) current_ma: u16,
+    pub(crate) voltage_mv: u16,
+    pub(crate) milli_ampere_hours: u16,
     #[expect(unused)]
-    pub unknown: u16, // Always 0.
+    pub(crate) unknown: u16, // Always 0.
     #[expect(unused)]
-    pub charge_current_ma: u16,
+    pub(crate) charge_current_ma: u16,
     #[expect(unused)]
-    pub charge_voltage_mv: u16,
+    pub(crate) charge_voltage_mv: u16,
     #[expect(unused)]
-    pub cutoff_current_ma: u16,
-    pub device_type: String,
+    pub(crate) cutoff_current_ma: u16,
+    pub(crate) device_type: String,
 }
 
 #[derive(Clone, Debug)]
-pub struct DischargeConstantCurrentReport {
-    pub in_progress: bool,
-    pub current_ma: u16,
-    pub voltage_mv: u16,
-    pub milli_ampere_hours: u16,
+pub(crate) struct DischargeConstantCurrentReport {
+    pub(crate) in_progress: bool,
+    pub(crate) current_ma: u16,
+    pub(crate) voltage_mv: u16,
+    pub(crate) milli_ampere_hours: u16,
     #[expect(unused)]
-    pub unknown: u16, // Always 0.
+    pub(crate) unknown: u16, // Always 0.
     #[expect(unused)]
-    pub discharge_current_ma: u16,
+    pub(crate) discharge_current_ma: u16,
     #[expect(unused)]
-    pub cutoff_voltage_mv: u16,
+    pub(crate) cutoff_voltage_mv: u16,
     #[expect(unused)]
-    pub cutoff_time_min: u16,
-    pub device_type: String,
+    pub(crate) cutoff_time_min: u16,
+    pub(crate) device_type: String,
 }
 
 #[derive(Clone, Debug)]
-pub struct DischargeConstantPowerReport {
-    pub in_progress: bool,
-    pub current_ma: u16,
-    pub voltage_mv: u16,
-    pub milli_ampere_hours: u16,
+pub(crate) struct DischargeConstantPowerReport {
+    pub(crate) in_progress: bool,
+    pub(crate) current_ma: u16,
+    pub(crate) voltage_mv: u16,
+    pub(crate) milli_ampere_hours: u16,
     #[expect(unused)]
-    pub unknown: u16, // Always 0.
+    pub(crate) unknown: u16, // Always 0.
     #[expect(unused)]
-    pub discharge_power_w: u16,
+    pub(crate) discharge_power_w: u16,
     #[expect(unused)]
-    pub cutoff_voltage_mv: u16,
+    pub(crate) cutoff_voltage_mv: u16,
     #[expect(unused)]
-    pub cutoff_time_min: u16,
-    pub device_type: String,
+    pub(crate) cutoff_time_min: u16,
+    pub(crate) device_type: String,
 }
 
 #[derive(Clone, Debug)]
-pub enum InboundFrame {
+pub(crate) enum InboundFrame {
     Firmware(FirmwareReport),
     DischargeConstantCurrent(DischargeConstantCurrentReport),
     DischargeConstantPower(DischargeConstantPowerReport),
@@ -475,7 +475,7 @@ impl TryFrom<&[u8]> for InboundFrame {
     }
 }
 
-pub enum DeviceEvent {
+pub(crate) enum DeviceEvent {
     StatusChanged(ConnectionStatus),
     // Vec of available devices.
     DevicesUpdated(Vec<UsbDeviceInfo>),
@@ -501,7 +501,7 @@ impl std::fmt::Debug for DeviceEvent {
     }
 }
 
-pub fn process_buffer(buf: &mut Vec<u8>) -> Vec<(InboundFrame, Vec<u8>)> {
+pub(crate) fn process_buffer(buf: &mut Vec<u8>) -> Vec<(InboundFrame, Vec<u8>)> {
     let mut frames = Vec::new();
     loop {
         if let Some(start) = buf.iter().position(|&b| b == START_BYTE) {

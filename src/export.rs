@@ -1,16 +1,16 @@
-pub enum LogDirection {
+pub(crate) enum LogDirection {
     In,
     Out,
 }
 
-pub struct LogEntry {
-    pub direction: LogDirection,
-    pub label: String,
-    pub timestamp: f64,
-    pub raw_bytes: Vec<u8>,
+pub(crate) struct LogEntry {
+    pub(crate) direction: LogDirection,
+    pub(crate) label: String,
+    pub(crate) timestamp: f64,
+    pub(crate) raw_bytes: Vec<u8>,
 }
 
-pub fn format_log(entries: &[LogEntry]) -> String {
+pub(crate) fn format_log(entries: &[LogEntry]) -> String {
     let mut out = String::new();
     for entry in entries {
         let t = entry.timestamp as u64;
@@ -36,7 +36,7 @@ pub fn format_log(entries: &[LogEntry]) -> String {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn save_log_to_file(entries: &[LogEntry]) {
+pub(crate) fn save_log_to_file(entries: &[LogEntry]) {
     let content = format_log(entries);
     if let Some(path) = rfd::FileDialog::new()
         .add_filter("Text", &["txt"])
@@ -48,7 +48,7 @@ pub fn save_log_to_file(entries: &[LogEntry]) {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn save_log_to_file(entries: &[LogEntry]) {
+pub(crate) fn save_log_to_file(entries: &[LogEntry]) {
     use wasm_bindgen::JsCast as _;
     let content = format_log(entries);
     let Some(window) = web_sys::window() else {
