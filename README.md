@@ -283,7 +283,7 @@ cargo clippy --target wasm32-unknown-unknown
 
 ### Creating a Release
 
-1. Bump the version in `Cargo.toml`.
+1. Bump the version in `Cargo.toml` and run `cargo build`.
 2. Commit and push to main, then wait for CI to pass.
 3. Tag the commit with the matching version and push the tag:
 
