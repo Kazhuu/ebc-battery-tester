@@ -83,7 +83,11 @@ fn send_time_sync_if_needed(
         match p.write_all(&bytes) {
             Ok(()) => {
                 event_tx
-                    .unbounded_send(DeviceEvent::FrameSent(frame, bytes.to_vec()))
+                    .unbounded_send(DeviceEvent::FrameSent(
+                        frame,
+                        bytes.to_vec(),
+                        Instant::now(),
+                    ))
                     .ok();
                 ctx.request_repaint();
             }
@@ -185,8 +189,11 @@ pub(crate) fn device_thread(
             match p.read(&mut temp_buffer) {
                 Ok(n) if n > 0 => {
                     buffer.extend_from_slice(&temp_buffer[..n]);
+                    let received_at = Instant::now();
                     for (frame, raw) in crate::device::process_buffer(&mut buffer) {
-                        event_tx.unbounded_send(DeviceEvent::Frame(frame, raw)).ok();
+                        event_tx
+                            .unbounded_send(DeviceEvent::Frame(frame, raw, received_at))
+                            .ok();
                         ctx.request_repaint();
                     }
                 }

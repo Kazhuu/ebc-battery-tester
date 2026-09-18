@@ -44,7 +44,7 @@ impl eframe::App for MainApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.about_window.poll();
-        self.session.consume_events(ui.ctx());
+        self.session.consume_events();
         // Request a repaint every second to update the timer. This is needed so
         // that the clock is updated every second.
         ui.ctx()

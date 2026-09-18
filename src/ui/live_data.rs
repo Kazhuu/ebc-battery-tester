@@ -1,5 +1,6 @@
 use crate::session::DeviceSession;
 use crate::ui::format_duration;
+use web_time::Instant;
 
 pub(crate) fn ui(session: &DeviceSession, ui: &mut egui::Ui) {
     ui.separator();
@@ -39,7 +40,7 @@ pub(crate) fn ui(session: &DeviceSession, ui: &mut egui::Ui) {
 
         ui.label("Time:");
         ui.label(format_duration(
-            session.displayed_elapsed_secs(ui.ctx().input(|i| i.time)),
+            session.displayed_elapsed_secs(Instant::now()),
         ));
         ui.end_row();
 

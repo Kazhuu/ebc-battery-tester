@@ -5,6 +5,7 @@ use device::{ConnectionStatus, DeviceEvent, OutboundFrame};
 use egui_plot::PlotPoint;
 use futures::channel::mpsc;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use web_time::{Duration, Instant};
 
 /// Live device connection: USB enumeration/connection state, telemetry
 /// received from the device, and outgoing command dispatch.
@@ -25,8 +26,11 @@ pub(crate) struct DeviceSession {
     pub(crate) current_device_mode: Option<device::DeviceMode>,
     pub(crate) mode_on: bool,
     pub(crate) log_entries: Vec<LogEntry>,
-    mode_start_time: f64,
-    mode_accumulated_secs: f64,
+    mode_start_time: Instant,
+    mode_accumulated_secs: Duration,
+    /// Reference point used to convert an `Instant` (e.g. one carried by a
+    /// `DeviceEvent`) into "seconds since the app started" for `LogEntry`.
+    app_start: Instant,
 }
 
 impl Default for DeviceSession {
@@ -48,8 +52,9 @@ impl Default for DeviceSession {
             current_device_mode: None,
             mode_on: false,
             log_entries: Vec::new(),
-            mode_start_time: 0.0,
-            mode_accumulated_secs: 0.0,
+            mode_start_time: Instant::now(),
+            mode_accumulated_secs: Duration::ZERO,
+            app_start: Instant::now(),
         }
     }
 }
@@ -73,37 +78,38 @@ impl DeviceSession {
     }
 
     /// Shows elapsed time whether or not the current mode is running.
-    pub(crate) fn displayed_elapsed_secs(&self, now: f64) -> f64 {
+    pub(crate) fn displayed_elapsed_secs(&self, now: Instant) -> f64 {
         if self.mode_on {
             self.elapsed_secs(now)
         } else {
-            self.mode_accumulated_secs
+            self.mode_accumulated_secs.as_secs_f64()
         }
     }
 
-    pub(crate) fn elapsed_secs(&self, now: f64) -> f64 {
-        self.mode_accumulated_secs + (now - self.mode_start_time).max(0.0)
+    pub(crate) fn elapsed_secs(&self, now: Instant) -> f64 {
+        (self.mode_accumulated_secs + now.saturating_duration_since(self.mode_start_time))
+            .as_secs_f64()
     }
 
     /// Marks a freshly started mode: resets the timer and clears the plot.
-    pub(crate) fn start_mode(&mut self, ctx: &egui::Context) {
+    pub(crate) fn start_mode(&mut self) {
         self.mode_on = true;
-        self.mode_start_time = ctx.input(|i| i.time);
-        self.mode_accumulated_secs = 0.0;
+        self.mode_start_time = Instant::now();
+        self.mode_accumulated_secs = Duration::ZERO;
         self.voltage_points.clear();
         self.amperes_points.clear();
     }
 
     /// Marks a resumed mode: keeps the accumulated timer and plot history.
-    pub(crate) fn continue_mode(&mut self, ctx: &egui::Context) {
+    pub(crate) fn continue_mode(&mut self) {
         self.mode_on = true;
-        self.mode_start_time = ctx.input(|i| i.time);
+        self.mode_start_time = Instant::now();
     }
 
-    pub(crate) fn stop_mode(&mut self, ctx: &egui::Context) {
-        let now = ctx.input(|i| i.time);
-        self.mode_accumulated_secs += now - self.mode_start_time;
-        self.mode_start_time = 0.0;
+    pub(crate) fn stop_mode(&mut self) {
+        let now = Instant::now();
+        self.mode_accumulated_secs += now.saturating_duration_since(self.mode_start_time);
+        self.mode_start_time = now;
         self.mode_on = false;
     }
 
@@ -135,19 +141,18 @@ impl DeviceSession {
         self.model_name = Some(firmware_report_struct.device_type);
     }
 
-    fn handle_charge_report(&mut self, charge_report: device::ChargeReport, ctx: &egui::Context) {
+    fn handle_charge_report(&mut self, charge_report: device::ChargeReport, now: Instant) {
         self.current_device_mode = Some(device::DeviceMode::ChargeConstantVoltage);
         let was_on = self.mode_on;
         self.mode_on = charge_report.in_progress;
         if was_on && !self.mode_on {
-            self.stop_mode(ctx);
+            self.stop_mode();
         }
         self.live_voltage_mv = charge_report.voltage_mv;
         self.live_current_ma = charge_report.current_ma;
         self.live_milli_ampere_hours = charge_report.milli_ampere_hours;
         self.model_name = Some(charge_report.device_type);
         if self.mode_on {
-            let now = ctx.input(|i| i.time);
             let x = self.elapsed_secs(now);
             self.voltage_points
                 .push(PlotPoint::new(x, self.live_voltage_mv as f64 / 1000.0));
@@ -159,20 +164,19 @@ impl DeviceSession {
     fn handle_discharge_constant_current_report(
         &mut self,
         discharge_report_struct: device::DischargeConstantCurrentReport,
-        ctx: &egui::Context,
+        now: Instant,
     ) {
         self.current_device_mode = Some(device::DeviceMode::DischargeConstantCurrent);
         let was_on = self.mode_on;
         self.mode_on = discharge_report_struct.in_progress;
         if was_on && !self.mode_on {
-            self.stop_mode(ctx);
+            self.stop_mode();
         }
         self.live_voltage_mv = discharge_report_struct.voltage_mv;
         self.live_current_ma = discharge_report_struct.current_ma;
         self.live_milli_ampere_hours = discharge_report_struct.milli_ampere_hours;
         self.model_name = Some(discharge_report_struct.device_type);
         if self.mode_on {
-            let now = ctx.input(|i| i.time);
             let x = self.elapsed_secs(now);
             self.voltage_points
                 .push(PlotPoint::new(x, self.live_voltage_mv as f64 / 1000.0));
@@ -184,20 +188,19 @@ impl DeviceSession {
     fn handle_discharge_constant_power_report(
         &mut self,
         discharge_report_struct: device::DischargeConstantPowerReport,
-        ctx: &egui::Context,
+        now: Instant,
     ) {
         self.current_device_mode = Some(device::DeviceMode::DischargeConstantPower);
         let was_on = self.mode_on;
         self.mode_on = discharge_report_struct.in_progress;
         if was_on && !self.mode_on {
-            self.stop_mode(ctx);
+            self.stop_mode();
         }
         self.live_voltage_mv = discharge_report_struct.voltage_mv;
         self.live_current_ma = discharge_report_struct.current_ma;
         self.live_milli_ampere_hours = discharge_report_struct.milli_ampere_hours;
         self.model_name = Some(discharge_report_struct.device_type);
         if self.mode_on {
-            let now = ctx.input(|i| i.time);
             let x = self.elapsed_secs(now);
             self.voltage_points
                 .push(PlotPoint::new(x, self.live_voltage_mv as f64 / 1000.0));
@@ -206,15 +209,22 @@ impl DeviceSession {
         }
     }
 
+    /// Converts an `Instant` (e.g. one carried by a `DeviceEvent`) into
+    /// "seconds since the app started", matching the units `LogEntry`
+    /// expects for display.
+    fn log_timestamp(&self, at: Instant) -> f64 {
+        at.saturating_duration_since(self.app_start).as_secs_f64()
+    }
+
     /// Consumes all pending events from the device event receiver and handles
     /// them accordingly.
-    pub(crate) fn consume_events(&mut self, ctx: &egui::Context) {
+    pub(crate) fn consume_events(&mut self) {
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
                 DeviceEvent::StatusChanged(status) => {
                     if matches!(status, ConnectionStatus::Error(_)) {
                         if self.mode_on {
-                            self.stop_mode(ctx);
+                            self.stop_mode();
                         }
                         self.current_device_mode = None;
                     }
@@ -232,12 +242,12 @@ impl DeviceSession {
                         self.selected_device_index = None;
                     }
                 }
-                DeviceEvent::Frame(frame, raw_bytes) => {
+                DeviceEvent::Frame(frame, raw_bytes, received_at) => {
                     log::info!("Received frame: {frame:?}");
                     self.log_entries.push(LogEntry {
                         direction: LogDirection::In,
                         label: format!("{frame:?}"),
-                        timestamp: ctx.input(|i| i.time),
+                        timestamp: self.log_timestamp(received_at),
                         raw_bytes,
                     });
                     match frame {
@@ -245,28 +255,28 @@ impl DeviceSession {
                             self.handle_firmware_report(firmware_report);
                         }
                         device::InboundFrame::Charge(charge_report) => {
-                            self.handle_charge_report(charge_report, ctx);
+                            self.handle_charge_report(charge_report, received_at);
                         }
                         device::InboundFrame::DischargeConstantCurrent(discharge_report_struct) => {
                             self.handle_discharge_constant_current_report(
                                 discharge_report_struct,
-                                ctx,
+                                received_at,
                             );
                         }
                         device::InboundFrame::DischargeConstantPower(discharge_report_struct) => {
                             self.handle_discharge_constant_power_report(
                                 discharge_report_struct,
-                                ctx,
+                                received_at,
                             );
                         }
                     }
                 }
-                DeviceEvent::FrameSent(frame, raw_bytes) => {
+                DeviceEvent::FrameSent(frame, raw_bytes, sent_at) => {
                     log::info!("Sent frame: {frame:?}");
                     self.log_entries.push(LogEntry {
                         direction: LogDirection::Out,
                         label: format!("{frame:?}"),
-                        timestamp: ctx.input(|i| i.time),
+                        timestamp: self.log_timestamp(sent_at),
                         raw_bytes,
                     });
                 }

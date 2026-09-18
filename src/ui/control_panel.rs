@@ -123,7 +123,7 @@ impl ControlPanel {
             if session.mode_on {
                 if ui.button("Stop").clicked() {
                     session.send_cmd(OutboundFrame::Stop, ui.ctx());
-                    session.stop_mode(ui.ctx());
+                    session.stop_mode();
                 }
             } else if ui
                 .add_enabled(session.has_live_voltage(), egui::Button::new("Start"))
@@ -142,7 +142,7 @@ impl ControlPanel {
                     ),
                     ui.ctx(),
                 );
-                session.start_mode(ui.ctx());
+                session.start_mode();
             }
             if ui
                 .add_enabled(
@@ -163,7 +163,7 @@ impl ControlPanel {
                     ),
                     ui.ctx(),
                 );
-                session.continue_mode(ui.ctx());
+                session.continue_mode();
             }
             if ui
                 .add_enabled(
@@ -232,7 +232,7 @@ impl ControlPanel {
             if session.mode_on {
                 if ui.button("Stop").clicked() {
                     session.send_cmd(OutboundFrame::Stop, ui.ctx());
-                    session.stop_mode(ui.ctx());
+                    session.stop_mode();
                 }
             } else if ui
                 .add_enabled(session.has_live_voltage(), egui::Button::new("Start"))
@@ -251,7 +251,7 @@ impl ControlPanel {
                     ),
                     ui.ctx(),
                 );
-                session.start_mode(ui.ctx());
+                session.start_mode();
             }
             if ui
                 .add_enabled(
@@ -272,7 +272,7 @@ impl ControlPanel {
                     ),
                     ui.ctx(),
                 );
-                session.continue_mode(ui.ctx());
+                session.continue_mode();
             }
         });
     }
@@ -323,7 +323,7 @@ impl ControlPanel {
             if session.mode_on {
                 if ui.button("Stop").clicked() {
                     session.send_cmd(OutboundFrame::Stop, ui.ctx());
-                    session.stop_mode(ui.ctx());
+                    session.stop_mode();
                 }
             } else if ui
                 .add_enabled(session.has_live_voltage(), egui::Button::new("Start"))
@@ -338,7 +338,7 @@ impl ControlPanel {
                     ),
                     ui.ctx(),
                 );
-                session.start_mode(ui.ctx());
+                session.start_mode();
             }
             if ui
                 .add_enabled(
@@ -355,7 +355,7 @@ impl ControlPanel {
                     ),
                     ui.ctx(),
                 );
-                session.continue_mode(ui.ctx());
+                session.continue_mode();
             }
         });
     }

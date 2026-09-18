@@ -1,5 +1,6 @@
 use super::connection;
 use crate::device::{ConnectionStatus, DeviceEvent, OUTBOUND_FRAME_SIZE, OutboundFrame};
+use crate::timer_sync::TimerSync;
 use futures::FutureExt as _;
 use futures::StreamExt as _;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -7,8 +8,14 @@ use futures::channel::oneshot;
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
+use web_time::Instant;
 
 const INBOUND_BUFFER_SIZE: u32 = 64;
+
+/// How often to check whether a `TimerSync` frame is due. Native drives this
+/// off its read-loop tick; wasm has no equivalent idle tick, so this is an
+/// explicit timer merged into the command-handling loop below.
+const TIMER_SYNC_TICK_MS: i32 = 250;
 
 pub(super) async fn device_task(
     ctx: egui::Context,
@@ -18,83 +25,166 @@ pub(super) async fn device_task(
     let mut stop_reading_tx: Option<oneshot::Sender<()>> = None;
     let mut device: Option<web_sys::UsbDevice> = None;
     let mut out_endpoint_num: Option<u8> = None;
+    let mut time_sync = TimerSync::new();
     loop {
-        match cmd_rx.next().await {
-            Some(OutboundFrame::Connect(idx)) => {
-                event_tx
-                    .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connecting))
-                    .ok();
-                ctx.request_repaint();
-                match connection::connect(idx).await {
-                    Ok(state) => {
-                        let dev = state.device;
-                        out_endpoint_num = Some(state.out_endpoint_num);
-                        let (stop_tx, stop_rx) = oneshot::channel();
-                        stop_reading_tx = Some(stop_tx);
-                        event_tx
-                            .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connected))
-                            .ok();
-                        wasm_bindgen_futures::spawn_local(reading_task(
-                            dev.clone(),
-                            state.in_endpoint_num,
-                            event_tx.clone(),
-                            stop_rx,
-                            ctx.clone(),
-                        ));
-                        device = Some(dev);
-                        ctx.request_repaint();
-                    }
-                    Err(e) => {
-                        log::error!("Failed to connect: {e}");
-                        event_tx
-                            .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Error(e)))
-                            .ok();
-                        ctx.request_repaint();
-                    }
-                }
-            }
-            Some(OutboundFrame::Disconnect) => {
-                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
-                    if let Some(stop_tx) = stop_reading_tx.take() {
-                        let result = stop_tx.send(());
-                        if let Err(e) = result {
-                            log::error!("Failed to stop reading task: {e:?}");
+        let next_cmd = cmd_rx.next().fuse();
+        let tick = sleep_ms(TIMER_SYNC_TICK_MS).fuse();
+        futures::pin_mut!(next_cmd, tick);
+        futures::select! {
+            cmd = next_cmd => match cmd {
+                Some(OutboundFrame::Connect(idx)) => {
+                    event_tx
+                        .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connecting))
+                        .ok();
+                    ctx.request_repaint();
+                    match connection::connect(idx).await {
+                        Ok(state) => {
+                            let dev = state.device;
+                            out_endpoint_num = Some(state.out_endpoint_num);
+                            let (stop_tx, stop_rx) = oneshot::channel();
+                            stop_reading_tx = Some(stop_tx);
+                            event_tx
+                                .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Connected))
+                                .ok();
+                            wasm_bindgen_futures::spawn_local(reading_task(
+                                dev.clone(),
+                                state.in_endpoint_num,
+                                event_tx.clone(),
+                                stop_rx,
+                                ctx.clone(),
+                            ));
+                            device = Some(dev);
+                            ctx.request_repaint();
+                        }
+                        Err(e) => {
+                            log::error!("Failed to connect: {e}");
+                            event_tx
+                                .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Error(e)))
+                                .ok();
+                            time_sync.mode_stopped(Instant::now());
+                            ctx.request_repaint();
                         }
                     }
-                    let result = connection::disconnect(device, ep).await;
-                    if let Err(e) = result {
-                        log::error!("Failed to disconnect: {e:?}");
+                }
+                Some(OutboundFrame::Disconnect) => {
+                    if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
+                        if let Some(stop_tx) = stop_reading_tx.take() {
+                            let result = stop_tx.send(());
+                            if let Err(e) = result {
+                                log::error!("Failed to stop reading task: {e:?}");
+                            }
+                        }
+                        let result = connection::disconnect(device, ep).await;
+                        if let Err(e) = result {
+                            log::error!("Failed to disconnect: {e:?}");
+                        }
+                    }
+                    device = None;
+                    out_endpoint_num = None;
+                    time_sync.mode_stopped(Instant::now());
+                    event_tx
+                        .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Disconnected))
+                        .ok();
+                    ctx.request_repaint();
+                }
+                Some(OutboundFrame::Stop) => {
+                    time_sync.mode_stopped(Instant::now());
+                    if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
+                        let result = connection::stop(device, ep).await;
+                        if let Err(e) = result {
+                            log::error!("Failed to send stop command: {e:?}");
+                        }
                     }
                 }
-                device = None;
-                out_endpoint_num = None;
-                event_tx
-                    .unbounded_send(DeviceEvent::StatusChanged(ConnectionStatus::Disconnected))
-                    .ok();
-                ctx.request_repaint();
-            }
-            Some(OutboundFrame::Stop) => {
-                if let (Some(device), Some(ep)) = (&device, out_endpoint_num) {
-                    let result = connection::stop(device, ep).await;
-                    if let Err(e) = result {
-                        log::error!("Failed to send stop command: {e:?}");
+                // Every other frame (discharge/charge start/adjust/continue,
+                // timer sync, calibration) is a plain "encode and transfer"
+                // command, so they all funnel through send_frame. Start/
+                // Continue additionally drive the timer sync lifecycle.
+                Some(frame) => {
+                    match &frame {
+                        OutboundFrame::ContinueConstantCurrentDischarge(..)
+                        | OutboundFrame::ContinueConstantPowerDischarge(..)
+                        | OutboundFrame::ContinueConstantVoltageCharge(..) => {
+                            time_sync.mode_continued(Instant::now());
+                        }
+                        OutboundFrame::StartConstantCurrentDischarge(..)
+                        | OutboundFrame::StartConstantPowerDischarge(..)
+                        | OutboundFrame::StartConstantVoltageCharge(..) => {
+                            time_sync.mode_started(Instant::now());
+                        }
+                        _ => {}
+                    }
+                    if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
+                        && let Err(e) = send_frame(device, ep, frame.clone()).await
+                    {
+                        log::error!("Failed to send {frame:?}: {e:?}");
                     }
                 }
-            }
-            // Every other frame (discharge/charge start/adjust/continue, timer
-            // sync, calibration) is a plain "encode and transfer" command with
-            // no extra connection-state bookkeeping, so they all funnel through
-            // send_frame.
-            Some(frame) => {
-                if let (Some(device), Some(ep)) = (&device, out_endpoint_num)
-                    && let Err(e) = send_frame(device, ep, frame.clone()).await
-                {
-                    log::error!("Failed to send {frame:?}: {e:?}");
-                }
-            }
-            None => break,
+                None => break,
+            },
+            () = tick => {
+                send_time_sync_if_needed(
+                    &mut time_sync,
+                    device.as_ref(),
+                    out_endpoint_num,
+                    &event_tx,
+                    &ctx,
+                )
+                .await;
+            },
         }
     }
+}
+
+/// Sends a `TimerSync` frame if a new minute boundary has been crossed since
+/// the last check.
+async fn send_time_sync_if_needed(
+    time_sync: &mut TimerSync,
+    device: Option<&web_sys::UsbDevice>,
+    out_endpoint_num: Option<u8>,
+    event_tx: &UnboundedSender<DeviceEvent>,
+    ctx: &egui::Context,
+) {
+    let Some(frame) = time_sync.check(Instant::now()) else {
+        return;
+    };
+    let Some((device, ep)) = device.zip(out_endpoint_num) else {
+        return;
+    };
+    let bytes: [u8; OUTBOUND_FRAME_SIZE] = frame.clone().into();
+    match send_frame(device, ep, frame.clone()).await {
+        Ok(()) => {
+            event_tx
+                .unbounded_send(DeviceEvent::FrameSent(
+                    frame,
+                    bytes.to_vec(),
+                    Instant::now(),
+                ))
+                .ok();
+            ctx.request_repaint();
+        }
+        Err(e) => {
+            log::error!("Failed to send timer sync frame: {e:?}");
+            time_sync.mode_stopped(Instant::now());
+        }
+    }
+}
+
+/// Resolves after `duration_ms`, implemented via `setTimeout` since wasm has
+/// no thread to sleep on.
+async fn sleep_ms(duration_ms: i32) {
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        let Some(window) = web_sys::window() else {
+            log::error!("No global `window` exists; cannot schedule timeout");
+            return;
+        };
+        if let Err(e) =
+            window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, duration_ms)
+        {
+            log::error!("Failed to schedule timeout: {e:?}");
+        }
+    });
+    JsFuture::from(promise).await.ok();
 }
 
 async fn send_frame(
@@ -129,8 +219,11 @@ async fn reading_task(
                     let result: web_sys::UsbInTransferResult = value.unchecked_into();
                     if let Some(data) = result.data() {
                         buf.extend_from_slice(&js_sys::Uint8Array::new(&data.buffer()).to_vec());
+                        let received_at = web_time::Instant::now();
                         for (frame, raw) in crate::device::process_buffer(&mut buf) {
-                            event_tx.unbounded_send(DeviceEvent::Frame(frame, raw)).ok();
+                            event_tx
+                                .unbounded_send(DeviceEvent::Frame(frame, raw, received_at))
+                                .ok();
                             ctx.request_repaint();
                         }
                     }

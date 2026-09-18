@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use web_time::Instant;
 
 pub(crate) const VENDOR_ID: u16 = 0x1A86;
 
@@ -479,11 +480,15 @@ pub(crate) enum DeviceEvent {
     StatusChanged(ConnectionStatus),
     // Vec of available devices.
     DevicesUpdated(Vec<UsbDeviceInfo>),
-    Frame(InboundFrame, Vec<u8>),
+    // The `Instant` is when the worker actually read this frame off the
+    // wire, not when the UI thread gets around to processing the event —
+    // needed so a backlog of events doesn't collapse onto one timestamp.
+    Frame(InboundFrame, Vec<u8>, Instant),
     // A frame the worker sent to the device on its own, outside the UI
     // thread's `send_cmd` (e.g. a `TimerSync` triggered by the worker's own
-    // clock), reported back so it still shows up in the log.
-    FrameSent(OutboundFrame, Vec<u8>),
+    // clock), reported back so it still shows up in the log. The `Instant`
+    // is when the worker actually wrote it, for the same reason as above.
+    FrameSent(OutboundFrame, Vec<u8>, Instant),
 }
 
 impl std::fmt::Debug for DeviceEvent {
@@ -491,10 +496,10 @@ impl std::fmt::Debug for DeviceEvent {
         match self {
             Self::StatusChanged(s) => f.debug_tuple("StatusChanged").field(s).finish(),
             Self::DevicesUpdated(d) => f.debug_tuple("DevicesUpdated").field(d).finish(),
-            Self::Frame(frame, _) => {
+            Self::Frame(frame, _, _) => {
                 write!(f, "Frame({frame:?})")
             }
-            Self::FrameSent(frame, _) => {
+            Self::FrameSent(frame, _, _) => {
                 write!(f, "FrameSent({frame:?})")
             }
         }
