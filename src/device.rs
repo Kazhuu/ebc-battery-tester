@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use web_time::Instant;
 
-pub(crate) const VENDOR_ID: u16 = 0x1A86;
+pub(crate) const CH340_VENDOR_ID: u16 = 0x1A86;
+#[cfg_attr(target_arch = "wasm32", expect(dead_code))]
+pub(crate) const CP210X_VENDOR_ID: u16 = 0x10C4;
 
 pub(crate) const INBOUND_FRAME_SIZE: usize = 19;
 pub(crate) const OUTBOUND_FRAME_SIZE: usize = 10;

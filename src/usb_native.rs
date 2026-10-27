@@ -19,7 +19,8 @@ pub(crate) fn enumerate_devices(event_tx: UnboundedSender<DeviceEvent>) {
         .into_iter()
         .filter_map(|p| {
             if let SerialPortType::UsbPort(usb) = p.port_type
-                && usb.vid == crate::device::VENDOR_ID
+                && (usb.vid == crate::device::CH340_VENDOR_ID
+                    || usb.vid == crate::device::CP210X_VENDOR_ID)
             {
                 return Some(UsbDeviceInfo {
                     product_name: usb.product.unwrap_or_default(),
@@ -44,17 +45,17 @@ pub(crate) fn spawn_device_worker(
     std::thread::spawn(move || device_thread(ctx, cmd_rx, event_tx));
 }
 
-fn find_ch340_port(idx: usize) -> Option<String> {
+fn find_usb_port(idx: usize) -> Option<String> {
     serialport::available_ports()
         .ok()?
         .into_iter()
-        .filter(|p| matches!(&p.port_type, SerialPortType::UsbPort(usb) if usb.vid == crate::device::VENDOR_ID))
+        .filter(|p| matches!(&p.port_type, SerialPortType::UsbPort(usb) if usb.vid == crate::device::CH340_VENDOR_ID || usb.vid == crate::device::CP210X_VENDOR_ID))
         .nth(idx)
         .map(|p| p.port_name)
 }
 
 pub(crate) fn connect(idx: usize) -> Result<Box<dyn serialport::SerialPort>, String> {
-    let name = find_ch340_port(idx).ok_or_else(|| format!("No CH340 device at index {idx}"))?;
+    let name = find_usb_port(idx).ok_or_else(|| format!("No USB device at index {idx}"))?;
     let mut port = serialport::new(&name, BAUD_RATE)
         .data_bits(serialport::DataBits::Eight)
         .parity(serialport::Parity::Odd)
